@@ -1,0 +1,4 @@
+<launch>
+<node pkg="imu_ahrs" type="ahrs_initialization.py" name="ahrs_initialization_server"  output="screen" />
+<node pkg="imu_ahrs" type="quaternion_integration.py" name="quat_integration"  output="screen" />
+</launch>
