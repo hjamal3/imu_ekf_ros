@@ -17,7 +17,6 @@ from helper import to_skew
 from geometry_msgs.msg import PoseStamped
 from geometry_msgs.msg import Quaternion as quatmsg
 counter = 0
-import tf
 
 
 def measurement_update_with_mag():
@@ -52,7 +51,6 @@ def measurement_update_with_mag():
 	# noise matrix for measurement
 	R = np.array([[sigma_a**2,0,0,0],[0,sigma_a**2,0,0],[0,0,sigma_a**2,0],[0,0,0,sigma_m**2]])
 	# operate on R!!!! transform to proper frame!
-
 
 	# compute Kalman gain
 	K = cov.dot(H.T).dot(np.linalg.inv(R+H.dot(cov).dot(H.T)))
@@ -156,17 +154,13 @@ def imu_callback(data):
 	if True:
 		b_vis = b_next.inverse
 		p = PoseStamped()
-		p.header.frame_id = 'quat'
+		p.pose.orientation.w = b_vis[0]
+		p.pose.orientation.x = b_vis[1]
+		p.pose.orientation.y = b_vis[2]
+		p.pose.orientation.z = b_vis[3]
+		p.header.frame_id = 'NED'
 		pub = rospy.Publisher('pose', PoseStamped, queue_size=1)
 		pub.publish(p)
-		br = tf.TransformBroadcaster()
-		# world to odom transformation. Ros uses the transformation between frames not points. The transformation
-		# that takes the world frame to odom frame. 
-		br.sendTransform((0, 0, 0),
-		(b_vis[1],b_vis[2],b_vis[3],b_vis[0]),
-		rospy.Time.now(),
-		"quat",
-		"world")
 
 	# get rotation matrix from b (body to navigation frame) (takes points in body frame and puts them in nav frame) Rnb
 	R_body_to_nav = np.transpose(b_next.rotation_matrix)
@@ -195,11 +189,14 @@ def imu_callback(data):
 	# compute noise matrix Q. Q is 12 x 12.
 	Q = np.zeros((12,12))
 	sigma_in = 0.0000
-	Pxg       = 2e-6;        # rad^2/s^2, ss bias cov
-	sigma_xg  = math.sqrt(2*lambda_g*Pxg)      # rad/s/s/rt_Hz, bias drift rate
-	sigma_nug = 2.2e-3   # rad/s/rt_Hz, angle drift rate (gyro meas. noise)
-	Pxa       = 2e-4;        #m^2/s^4, ss bias cov
-	sigma_xa  = math.sqrt(2*lambda_a*Pxa) # m/s/s/s/rt_Hz, bias drift rate
+	sigma_xg = 0.00000290 # Gyro (rate) random walk
+	sigma_nug = 0.00068585   # rad/s/rt_Hz, Gyro white noise
+	sigma_xa = 0.00001483 # Accel (rate) random walk m/s3 1/sqrt(Hz)
+
+	# Pxg       = 2e-6;        # rad^2/s^2, ss bias cov
+	# sigma_xg  = math.sqrt(2*lambda_g*Pxg)      # rad/s/s/rt_Hz, bias drift rate
+	# Pxa       = 2e-4;        #m^2/s^4, ss bias cov
+	# sigma_xa  = math.sqrt(2*lambda_a*Pxa) # m/s/s/s/rt_Hz, bias drift rate
 
 	Q[:3,:3] = sigma_in**2*np.identity(3)
 	Q[3:6,3:6] = sigma_xg**2*np.identity(3)
@@ -271,6 +268,14 @@ def initalize_ahrs_client():
 		# initialize covariance
 		global cov
 		cov = np.identity(9)
+		sigma_nua = 0.00220313
+		sigma_m = 1*math.pi/180
+		sigma_nug = 0.00068585
+		T = 1000.0/200 # number of measurements over rate of IMU
+		g = 9.8
+
+		cov[:3,:3] = np.diag([sigma_nua/g,sigma_nua/g,sigma_m])**2/T
+		cov[3:6,3:6] = np.identity(3)*sigma_nug**2 
 
 
 	except rospy.ServiceException, e:
@@ -278,7 +283,7 @@ def initalize_ahrs_client():
 
 
 if __name__ == "__main__":
-	rospy.init_node('quat_integration')
+	rospy.init_node('ahrs_ekf')
 
 	# initialize orientation
 	print('Initalizing IMU...')

@@ -121,7 +121,7 @@ if __name__ == "__main__":
 
 	# get number of points to average
 	global num_data
-	num_data = rospy.get_param('num_data', 1000)
+	num_data = rospy.get_param('num_data', 5)
 
 	# Imu callback
 	global sub_imu, sub_mag
