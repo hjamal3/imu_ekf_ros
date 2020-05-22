@@ -18,7 +18,83 @@ from geometry_msgs.msg import PoseStamped
 from geometry_msgs.msg import Quaternion as quatmsg
 counter = 0
 
+# accelerometer
+accelOnly = True
+accel_counter = 0
 
+
+# TODO: Finish EKF with only accel
+def measurement_update():
+
+	# access current state
+	global state
+	b = state[0]
+	x_g = state[1]
+	x_a = state[2]
+	b_q = Quaternion(array=b)
+	R_body_to_nav = np.transpose(b_q.rotation_matrix)
+
+	# measurement matrix gyroscope
+	g_const = 9.81
+	Ha = np.array([[0,g_const,0,0,0,0],[-g_const, 0,0,0,0,0],[0,0,0,0,0,0]]) 	
+	Ha = np.hstack((Ha,R_body_to_nav))
+
+	# measurement matrices
+	H = Ha
+
+	# previous covariance: 9x9
+	global cov
+
+	# compute individual sensor variances
+	global sigma_xg, sigma_nug, sigma_xa, sigma_nua, sigma_m
+
+	# noise matrix for measurement
+	R = np.array([[sigma_nua**2,0,0],[0,sigma_nua**2,0],[0,0,sigma_nua**2]])
+
+	# compute Kalman gain
+
+	K = cov.dot(H.T).dot(np.linalg.inv(R+H.dot(cov).dot(H.T)))
+
+	# access current sensor readings and stack them
+	global g_pred
+
+	y_pred = g_pred
+
+	# stack known gravity and magnetometer vector
+	g = np.array([0,0,9.81])
+	y = g
+
+	# residual z
+	z = y-y_pred
+
+	# compute state correction
+	dx = K.dot(z)
+
+	# rotation update 
+	p = dx[:3]
+	P = to_skew(p)
+	R_nav_to_body = R_body_to_nav.T
+	R_nav_to_body_next = R_nav_to_body.dot(np.identity(3) - P) # (10.67)
+
+	# reorthogonalize matrix... required by PyQuaternion... use SVD
+	U, S, Vh = np.linalg.svd(R_nav_to_body_next)
+	R_nav_to_body_next = U.dot(Vh)
+
+	b_next = Quaternion(matrix=R_nav_to_body_next).elements
+
+	# bias update
+	dx_g = dx[3:6]
+	dx_a = dx[6:]
+
+	# update state 
+	state[0] = b_next # update quaternion
+	state[1] = state[1] + dx_g # update gyro bias
+	state[2] = state[2] + dx_a  # update accel bias
+
+	# update covariance
+	cov = (np.identity(9)-K.dot(H)).dot(cov)
+
+# TODO: Finish EKF with magnetometer
 def measurement_update_with_mag():
 
 	# access current state
@@ -45,12 +121,10 @@ def measurement_update_with_mag():
 	global cov
 
 	# compute individual sensor variances
-	sigma_m = 0.00001
-	sigma_a = 0.00001
+	global sigma_xg, sigma_nug, sigma_xa, sigma_nua, sigma_m
 
 	# noise matrix for measurement
-	R = np.array([[sigma_a**2,0,0,0],[0,sigma_a**2,0,0],[0,0,sigma_a**2,0],[0,0,0,sigma_m**2]])
-	# operate on R!!!! transform to proper frame!
+	R = np.array([[sigma_nua**2,0,0,0],[0,sigma_nua**2,0,0],[0,0,sigma_nua**2,0],[0,0,0,sigma_m**2]])
 
 	# compute Kalman gain
 	K = cov.dot(H.T).dot(np.linalg.inv(R+H.dot(cov).dot(H.T)))
@@ -189,9 +263,9 @@ def imu_callback(data):
 	# compute noise matrix Q. Q is 12 x 12.
 	Q = np.zeros((12,12))
 	sigma_in = 0.0000
-	sigma_xg = 0.00000290 # Gyro (rate) random walk
-	sigma_nug = 0.00068585   # rad/s/rt_Hz, Gyro white noise
-	sigma_xa = 0.00001483 # Accel (rate) random walk m/s3 1/sqrt(Hz)
+
+	# noise
+	global sigma_xg, sigma_nug, sigma_xa, sigma_nua, sigma_m
 
 	# Farrell's code:
 	# Pxg       = 2e-6;        # rad^2/s^2, ss bias cov
@@ -232,6 +306,18 @@ def imu_callback(data):
 
 	counter += 1
 
+	global accelOnly, accel_counter
+	if (accelOnly):
+		# print(np.linalg.norm(a - [0,0,9.8]))
+		if np.linalg.norm(a - [0,0,9.8]) < 0.35: # tuned
+			accel_counter += 1
+		else:
+			accel_counter = 0
+		if accel_counter == 50:
+			print("yo")
+			measurement_update()
+			accel_counter = 0
+
 
 # call initalization node
 def initalize_ahrs_client():
@@ -267,12 +353,18 @@ def initalize_ahrs_client():
 		# initialize covariance
 		global cov
 		cov = np.identity(9)
+
 		# TODO: make these noise terms in some launch file or something
-		sigma_nua = 0.00220313
+		global sigma_xg, sigma_nug, sigma_xa, sigma_nua, sigma_m
+
+		sigma_xg = 0.00000290 # Gyro (rate) random walk
+		sigma_nug = 0.00068585   # rad/s/rt_Hz, Gyro white noise
+		sigma_xa = 0.00001483 # Accel (rate) random walk m/s3 1/sqrt(Hz)
+		sigma_nua = 0.00220313 # accel white noise
 		sigma_m = 1*math.pi/180
-		sigma_nug = 0.00068585
 		T = 1000.0/200 # number of measurements over rate of IMU
 		g = 9.8
+
 		cov[:3,:3] = np.diag([sigma_nua/g,sigma_nua/g,sigma_m])**2/T
 		cov[3:6,3:6] = np.identity(3)*sigma_nug**2 
 		cov[0:2,7:9] = np.diag([math.sqrt(cov[0,0]*cov[7,7]),math.sqrt(cov[1,1]*cov[8,8])]) # absolutely no idea

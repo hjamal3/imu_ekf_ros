@@ -296,7 +296,7 @@ else                            % state propagation while in motion
                sprintf('KF Attitude correction at %0.5g',t)
                  Ha(:,7:9) = Rb2n;
                  ha  = Ha(1:2,:);
-                 hatg_n =  Rb2n*(x_a-f_ip_p);
+                 hatg_n =  Rb2n*(x_a-f_ip_p); % accel reading
                  Raa = (Ra + (10*nrm_accel)^2)*eye(2,2);    % account for acceleration as error
                  K   = Pm*ha'*inv(ha*Pm*ha'+Raa);     % KF gain
                  Pp  = Pm - K*(ha*Pm);               % meas update for cov
