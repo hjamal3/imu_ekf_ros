@@ -7,3 +7,6 @@ roslaunch ahrs.launch
 Your IMU publishes sensor_msgs/IMU messages on the topic '/imu/data', containing accelerometer and gyroscope data.
 
 To visualize, run rviz, create an Axes and change the reference frame to 'NED'. Create another Axes and change the reference frame to 'quat'.
+
+![GitHub Logo](/results/screencap.png)
+Format: ![Alt Text](url)
