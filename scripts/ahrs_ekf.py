@@ -17,6 +17,7 @@ from helper import to_skew
 from geometry_msgs.msg import PoseStamped
 from geometry_msgs.msg import Quaternion as quatmsg
 counter = 0
+import tf
 
 # accelerometer
 accelOnly = True
@@ -227,14 +228,22 @@ def imu_callback(data):
 	# visualize propagated quaternion
 	if True:
 		b_vis = b_next.inverse
-		p = PoseStamped()
-		p.pose.orientation.w = b_vis[0]
-		p.pose.orientation.x = b_vis[1]
-		p.pose.orientation.y = b_vis[2]
-		p.pose.orientation.z = b_vis[3]
-		p.header.frame_id = 'NED'
-		pub = rospy.Publisher('pose', PoseStamped, queue_size=1)
-		pub.publish(p)
+		# p = PoseStamped()
+		# p.pose.orientation.w = b_vis[0]
+		# p.pose.orientation.x = b_vis[1]
+		# p.pose.orientation.y = b_vis[2]
+		# p.pose.orientation.z = b_vis[3]
+		# p.header.frame_id = 'NED'
+		# pub = rospy.Publisher('pose', PoseStamped, queue_size=1)
+		# pub.publish(p)
+
+		br = tf.TransformBroadcaster()
+		# world to odom transformation
+		br.sendTransform((0, 0, 0),
+		(b_vis[1],b_vis[2],b_vis[3],b_vis[0]),
+		rospy.Time.now(),
+		"quat",
+		"NED") # NED to quat
 
 	# get rotation matrix from b (body to navigation frame) (takes points in body frame and puts them in nav frame) Rnb
 	R_body_to_nav = np.transpose(b_next.rotation_matrix)
@@ -314,7 +323,7 @@ def imu_callback(data):
 		else:
 			accel_counter = 0
 		if accel_counter == 50:
-			print("yo")
+			print("Measurement Update")
 			measurement_update()
 			accel_counter = 0
 
