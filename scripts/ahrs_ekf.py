@@ -193,6 +193,7 @@ def imu_callback(data):
 	sigma_nug = 0.00068585   # rad/s/rt_Hz, Gyro white noise
 	sigma_xa = 0.00001483 # Accel (rate) random walk m/s3 1/sqrt(Hz)
 
+	# Farrell's code:
 	# Pxg       = 2e-6;        # rad^2/s^2, ss bias cov
 	# sigma_xg  = math.sqrt(2*lambda_g*Pxg)      # rad/s/s/rt_Hz, bias drift rate
 	# Pxa       = 2e-4;        #m^2/s^4, ss bias cov
@@ -223,13 +224,11 @@ def imu_callback(data):
 
 	# ... print the difference from unit norm and see
 
-
 	# a check to see if filter going at 200 Hz. 
 	# global counter
 	# # if counter == 200:
 	# # 	print('Check')
 	# # 	counter = 0
-
 
 	counter += 1
 
@@ -268,15 +267,16 @@ def initalize_ahrs_client():
 		# initialize covariance
 		global cov
 		cov = np.identity(9)
+		# TODO: make these noise terms in some launch file or something
 		sigma_nua = 0.00220313
 		sigma_m = 1*math.pi/180
 		sigma_nug = 0.00068585
 		T = 1000.0/200 # number of measurements over rate of IMU
 		g = 9.8
-
 		cov[:3,:3] = np.diag([sigma_nua/g,sigma_nua/g,sigma_m])**2/T
 		cov[3:6,3:6] = np.identity(3)*sigma_nug**2 
-
+		cov[0:2,7:9] = np.diag([math.sqrt(cov[0,0]*cov[7,7]),math.sqrt(cov[1,1]*cov[8,8])]) # absolutely no idea
+		cov[6:,0:3] = np.transpose(cov[0:3,6:])
 
 	except rospy.ServiceException, e:
 		print "Service call failed: %s"%e
