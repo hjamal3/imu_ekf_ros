@@ -99,7 +99,7 @@ def measurement_update():
 def imu_callback(data):
 
 	# sample time. watch out for truncation
-	dt = 1.0/200
+	global dt
 
 	# get angular velocity and accelerometer data
 	w = np.array([data.angular_velocity.x, data.angular_velocity.y,data.angular_velocity.z])
@@ -130,24 +130,24 @@ def imu_callback(data):
 	# update state (convert to numpy array) -> this is time propagation step. 
 	state[0] = b_next.elements
 
-	# visualize propagated quaternion
+	# publish Quaternion and also tf
 	if True:
 		b_vis = b_next.inverse
-		# p = PoseStamped()
-		# p.pose.orientation.w = b_vis[0]
-		# p.pose.orientation.x = b_vis[1]
-		# p.pose.orientation.y = b_vis[2]
-		# p.pose.orientation.z = b_vis[3]
-		# p.header.frame_id = 'NED'
-		# pub = rospy.Publisher('pose', PoseStamped, queue_size=1)
-		# pub.publish(p)
+		p = quatmsg()
+		p.w = b_vis[0]
+		p.x = b_vis[1]
+		p.y = b_vis[2]
+		p.z = b_vis[3]
+		pub = rospy.Publisher('AHRS_EKF_quat', quatmsg, queue_size=1)
+		pub.publish(p)
 
+		# useful for visualization
 		br = tf.TransformBroadcaster()
 		# world to odom transformation
 		br.sendTransform((0, 0, 0),
 		(b_vis[1],b_vis[2],b_vis[3],b_vis[0]),
 		rospy.Time.now(),
-		"quat",
+		"IMU",
 		"NED") # NED to quat
 
 	# get rotation matrix from b (body to navigation frame) (takes points in body frame and puts them in nav frame) Rnb
@@ -201,12 +201,13 @@ def imu_callback(data):
 
 	# periodically normalize the quaternion
 	global counter
-	if counter == 200:
+	if counter == 1000:
 		state[0] = state[0]/np.linalg.norm(state[0])
+		counter = 0
 
 	# TODO: check this - print the difference from unit norm and see
 
-	# a check to see if filter going at 200 Hz. 
+	# a check to see if filter going at 200 Hz. another test is just "rostopic hz AHRS_EKF_quat"
 	# global counter
 	# # if counter == 200:
 	# # 	print('Check')
@@ -215,12 +216,12 @@ def imu_callback(data):
 	# if 50 accelerometer readings were close enough to the gravity vector, robot is stationary
 	# -> do measurement update
 	global accel_counter
-	if np.linalg.norm(a - [0,0,9.8]) < 0.35: # tuned
+	if np.linalg.norm(a - [0,0,9.8]) < 0.3: # tuned
 		accel_counter += 1
 	else:
 		accel_counter = 0
-	if accel_counter == 50:
-		print("Measurement Update")
+	if accel_counter == 200:
+		# print("Measurement Update")
 		measurement_update()
 		accel_counter = 0
 
@@ -241,7 +242,7 @@ def initalize_ahrs_client():
 		# request the service
 		print("quat_integration: Starting initialization.")
 		resp = initalize_ahrs()
-		print("quat_integration: Recieved initalization data.")
+		print("quat_integration: Received initalization data.")
 
 		# access service response
 		b = resp.init_orientation
@@ -263,6 +264,11 @@ def initalize_ahrs_client():
 		global cov
 		cov = np.identity(9)
 
+		# imu hz
+		imu_hz = rospy.get_param('imu_hz', 400)
+		global dt
+		dt = 1.0/imu_hz
+
 		# TODO: make these noise terms in some launch file or something
 		global sigma_xg, sigma_nug, sigma_xa, sigma_nua, sigma_m
 
@@ -271,7 +277,7 @@ def initalize_ahrs_client():
 		sigma_xa = 0.00001483 # Accel (rate) random walk m/s3 1/sqrt(Hz)
 		sigma_nua = 0.00220313 # accel white noise
 		sigma_m = 0
-		T = 1000.0/200 # number of measurements over rate of IMU
+		T = 1000.0/400 # number of measurements over rate of IMU
 		g = 9.8 # gravity m/s/s
 
 		cov[:3,:3] = np.diag([sigma_nua/g,sigma_nua/g,sigma_m])**2/T
