@@ -1,4 +1,4 @@
-# imu_ahrs_ros
+# imu_ekf_ros
 A general ROS package that fuses the accelerometer and gyroscope of an IMU to estimate orientation. 
 
 ![GitHub Logo](/results/screencap.png)
