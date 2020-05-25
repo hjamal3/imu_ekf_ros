@@ -20,6 +20,7 @@ counter = 0
 import tf
 
 # accelerometer
+accelOnly = True
 accel_counter = 0
 
 
@@ -60,8 +61,8 @@ def measurement_update():
 
 	y_pred = g_pred
 
-	# known gravity vector
-	g = np.array([0,0,9.80])
+	# stack known gravity and magnetometer vector
+	g = np.array([0,0,9.81])
 	y = g
 
 	# residual z
@@ -93,6 +94,100 @@ def measurement_update():
 
 	# update covariance
 	cov = (np.identity(9)-K.dot(H)).dot(cov)
+
+# TODO: Finish EKF with magnetometer
+def measurement_update_with_mag():
+
+	# access current state
+	global state
+	b = state[0]
+	x_g = state[1]
+	x_a = state[2]
+	b_q = Quaternion(array=b)
+	R_body_to_nav = np.transpose(b_q.rotation_matrix)
+
+	# measurement matrix gyroscope
+	g_const = 9.81
+	Ha = np.array([[0,g_const,0,0,0,0],[-g_const, 0,0,0,0,0],[0,0,0,0,0,0]]) 	
+	Ha = np.hstack((Ha,R_body_to_nav))
+
+	# measurement matrix magnetometer
+	# TODO. What is the true north??
+	Hm = np.array([0,0,1,0,0,0,0,0,0])
+
+	# measurement matrices
+	H = np.vstack((Ha,Hm))
+
+	# previous covariance: 9x9
+	global cov
+
+	# compute individual sensor variances
+	global sigma_xg, sigma_nug, sigma_xa, sigma_nua, sigma_m
+
+	# noise matrix for measurement
+	R = np.array([[sigma_nua**2,0,0,0],[0,sigma_nua**2,0,0],[0,0,sigma_nua**2,0],[0,0,0,sigma_m**2]])
+
+	# compute Kalman gain
+	K = cov.dot(H.T).dot(np.linalg.inv(R+H.dot(cov).dot(H.T)))
+
+	# access current sensor readings and stack them
+	global g_pred, m_pred
+
+	try: # sometimes in first round the mag data comes before the imu data. if that's the case ignore.
+		y_pred = np.concatenate((g_pred,m_pred[1]))
+	except: 
+		return
+
+	# stack known gravity and magnetometer vector
+	g = np.array([0,0,9.81])
+	m = np.array([0]) 
+	y = np.concatenate((g,m))
+
+	# residual z
+	z = y-y_pred
+
+	# compute state correction
+	dx = K.dot(z)
+
+	# rotation update 
+	p = dx[:3]
+	P = to_skew(p)
+	R_nav_to_body = R_body_to_nav.T
+	R_nav_to_body_next = R_nav_to_body.dot(np.identity(3) - P) # (10.67)
+	b_next = Quaternion(matrix=R_nav_to_body_next).elements
+
+	# bias update
+	dx_g = dx[3:6]
+	dx_a = dx[6:]
+
+	# update state 
+	state[0] = b_next # update quaternion
+	state[1] = state[1] + dx_g # update gyro bias
+	state[2] = state[2] + dx_a  # update accel bias
+
+	# update covariance
+	cov = (np.identity(9)-K.dot(H)).dot(cov)
+
+# def mag_callback(data):
+
+# 	# get mag data
+# 	mag = np.array([data.vector.x,data.vector.y,data.vector.z])
+
+# 	# normalize magnetometer reading
+# 	mag = mag/np.linalg.norm(mag)
+
+# 	# get rotation matrix from b (body to navigation frame)
+# 	global state
+# 	b = state[0]
+# 	b = Quaternion(array=b)
+# 	R_body_to_nav = np.transpose(b.rotation_matrix)
+
+# 	# predict magnetometer in navigation frame and store prediction in global variable. used in filter
+# 	global m_pred
+# 	m_pred = R_body_to_nav.dot(mag)
+
+# 	# run measurement update once you get magnetometer data since it's slower
+# 	#measurement_update_with_mag()
 
 
 # update orientation here. use RK3
@@ -204,7 +299,7 @@ def imu_callback(data):
 	if counter == 200:
 		state[0] = state[0]/np.linalg.norm(state[0])
 
-	# TODO: check this - print the difference from unit norm and see
+	# ... print the difference from unit norm and see
 
 	# a check to see if filter going at 200 Hz. 
 	# global counter
@@ -212,20 +307,19 @@ def imu_callback(data):
 	# # 	print('Check')
 	# # 	counter = 0
 
-	# if 50 accelerometer readings were close enough to the gravity vector, robot is stationary
-	# -> do measurement update
-	global accel_counter
-	if np.linalg.norm(a - [0,0,9.8]) < 0.35: # tuned
-		accel_counter += 1
-	else:
-		accel_counter = 0
-	if accel_counter == 50:
-		print("Measurement Update")
-		measurement_update()
-		accel_counter = 0
-
-	# increment counter
 	counter += 1
+
+	global accelOnly, accel_counter
+	if (accelOnly):
+		# print(np.linalg.norm(a - [0,0,9.8]))
+		if np.linalg.norm(a - [0,0,9.8]) < 0.35: # tuned
+			accel_counter += 1
+		else:
+			accel_counter = 0
+		if accel_counter == 50:
+			print("Measurement Update")
+			measurement_update()
+			accel_counter = 0
 
 
 # call initalization node
@@ -270,7 +364,7 @@ def initalize_ahrs_client():
 		sigma_nug = 0.00068585   # rad/s/rt_Hz, Gyro white noise
 		sigma_xa = 0.00001483 # Accel (rate) random walk m/s3 1/sqrt(Hz)
 		sigma_nua = 0.00220313 # accel white noise
-		sigma_m = 0
+		sigma_m = 1*math.pi/180
 		T = 1000.0/200 # number of measurements over rate of IMU
 		g = 9.8 # gravity m/s/s
 
@@ -292,5 +386,6 @@ if __name__ == "__main__":
 
 	# start callback
 	rospy.Subscriber("/imu/data", Imu, imu_callback)
+	# rospy.Subscriber("/imu/mag", Vector3Stamped, mag_callback)
 
 	rospy.spin()
