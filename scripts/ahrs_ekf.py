@@ -116,6 +116,9 @@ def imu_callback(data):
 	w = -1*(w - x_g)
 	w_norm = np.linalg.norm(w)
 
+	# subtract out accelerometer bias
+	a = a - x_a
+
 	# get db, the differential rotation (quaternion)
 	# quaternion is stored as [w, x, y, z]
 	db = np.concatenate(([math.cos(w_norm*dt/2)],math.sin(w_norm*dt/2)*w/w_norm))
