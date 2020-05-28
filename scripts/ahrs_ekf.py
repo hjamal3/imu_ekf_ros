@@ -221,7 +221,7 @@ def imu_callback(data):
 		accel_counter += 1
 	else:
 		accel_counter = 0
-	if accel_counter == 200:
+	if accel_counter == 50:
 		print("Measurement Update")
 		measurement_update()
 		accel_counter = 0
