@@ -116,9 +116,6 @@ def imu_callback(data):
 	w = -1*(w - x_g)
 	w_norm = np.linalg.norm(w)
 
-	# subtract out accelerometer bias
-	a = a - x_a
-
 	# get db, the differential rotation (quaternion)
 	# quaternion is stored as [w, x, y, z]
 	db = np.concatenate(([math.cos(w_norm*dt/2)],math.sin(w_norm*dt/2)*w/w_norm))
@@ -181,7 +178,7 @@ def imu_callback(data):
 	sigma_in = 0.0000
 
 	# noise
-	global sigma_xg, sigma_nug, sigma_xa, sigma_nua, sigma_m
+	global sigma_xg, sigma_nug, sigma_xa, sigma_nua
 
 	# initialize Q
 	Q[:3,:3] = sigma_in**2*np.identity(3)
@@ -199,6 +196,7 @@ def imu_callback(data):
 	cov = Phi.dot(cov).dot(Phi.T)+Qdk
 
 	# predict gravity in navigation frame and store prediction in global variable. used in filter.
+	# subtract out 
 	global g_pred
 	g_pred = R_body_to_nav.dot(x_a - a)
 
@@ -224,7 +222,7 @@ def imu_callback(data):
 	else:
 		accel_counter = 0
 	if accel_counter == 200:
-		# print("Measurement Update")
+		print("Measurement Update")
 		measurement_update()
 		accel_counter = 0
 
@@ -243,9 +241,9 @@ def initalize_ahrs_client():
 		initalize_ahrs = rospy.ServiceProxy('initalize_ahrs', initRequest)
 
 		# request the service
-		print("quat_integration: Starting initialization.")
+		print("ahrs_ekf: Starting initialization.")
 		resp = initalize_ahrs()
-		print("quat_integration: Received initalization data.")
+		print("ahrs_ekf: Received initalization data.")
 
 		# access service response
 		b = resp.init_orientation
@@ -268,22 +266,21 @@ def initalize_ahrs_client():
 		cov = np.identity(9)
 
 		# imu hz
-		imu_hz = rospy.get_param('imu_hz', 400)
+		imu_hz = rospy.get_param('imu_hz', 200)
 		global dt
 		dt = 1.0/imu_hz
 
 		# TODO: make these noise terms in some launch file or something
-		global sigma_xg, sigma_nug, sigma_xa, sigma_nua, sigma_m
+		global sigma_xg, sigma_nug, sigma_xa, sigma_nua
 
 		sigma_xg = 0.00000290 # Gyro (rate) random walk
 		sigma_nug = 0.00068585   # rad/s/rt_Hz, Gyro white noise
 		sigma_xa = 0.00001483 # Accel (rate) random walk m/s3 1/sqrt(Hz)
 		sigma_nua = 0.00220313 # accel white noise
-		sigma_m = 0
 		T = 1000.0/400 # number of measurements over rate of IMU
 		g = 9.8 # gravity m/s/s
 
-		cov[:3,:3] = np.diag([sigma_nua/g,sigma_nua/g,sigma_m])**2/T
+		cov[:3,:3] = np.diag([sigma_nua/g,sigma_nua/g,0])**2/T
 		cov[3:6,3:6] = np.identity(3)*sigma_nug**2 
 		cov[0:2,7:9] = np.diag([math.sqrt(cov[0,0]*cov[7,7]),math.sqrt(cov[1,1]*cov[8,8])]) # absolutely no idea
 		cov[6:,0:3] = np.transpose(cov[0:3,6:])
