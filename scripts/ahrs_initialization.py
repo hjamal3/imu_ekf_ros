@@ -7,6 +7,7 @@ from imu_ahrs.srv import *
 import math
 import numpy as np
 from tf.transformations import quaternion_from_euler
+import tf
 
 n_imu = 0
 sum_accel = np.zeros(3)
@@ -49,13 +50,17 @@ def handle_init_ahrs(req):
 	g_b = sum_accel/num_data
 
 	# compute initial roll (phi) and pitch (theta)
-	phi = math.atan2(g_b[1],g_b[2])
-	theta = math.atan2(-g_b[0], math.sqrt(g_b[1]**2 + g_b[2]**2))
+	phi = math.atan2(-g_b[1],-g_b[2])
+	theta = math.atan2(g_b[0], math.sqrt(g_b[1]**2 + g_b[2]**2))
 
 	# set yaw (psi) as zero since no absolute heading available
 	psi = 0
 
-	q = quaternion_from_euler(phi, theta, psi)
+	# q is navigation to body transformation: R_bi
+	# YPR: R_ib = R(yaw)R(pitch)R(Roll)
+	# RPY: R_bi = R(-Roll)R(-Pitch)R(-yaw)
+	q = quaternion_from_euler(-phi, -theta, -psi,'sxyz')
+
 	quat = Quaternion()
 	quat.x = q[0]
 	quat.y = q[1]
@@ -66,7 +71,7 @@ def handle_init_ahrs(req):
 	gyro_avg = sum_gyro/num_data
 	gyro_biases = [gyro_avg[0], gyro_avg[1], gyro_avg[2]]
 
-	print("ahrs_initialization_server: Initial RPY: ", phi, theta, psi)
+	print("ahrs_initialization_server: Initial YPR: ", psi, theta, phi)
 	print("ahrs_initialization_server: Gyro Biases ", gyro_biases)
 	return initRequestResponse(quat, gyro_biases)
 

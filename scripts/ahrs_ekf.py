@@ -16,9 +16,9 @@ from helper import to_skew
 #debugging
 from geometry_msgs.msg import PoseStamped
 from geometry_msgs.msg import Quaternion as quatmsg
-counter = 0
 import tf
 
+counter = 0
 # accelerometer
 accel_counter = 0
 
@@ -148,7 +148,7 @@ def imu_callback(data):
 		(b_vis[1],b_vis[2],b_vis[3],b_vis[0]),
 		rospy.Time.now(),
 		"IMU",
-		"NED") # NED to quat
+		"ENU") # NED to quat
 
 	# get rotation matrix from b (body to navigation frame) (takes points in body frame and puts them in nav frame) Rnb
 	R_body_to_nav = np.transpose(b_next.rotation_matrix)
@@ -206,22 +206,16 @@ def imu_callback(data):
 		state[0] = state[0]/np.linalg.norm(state[0])
 		counter = 0
 
-	# TODO: check this - print the difference from unit norm and see
-
-	# a check to see if filter going at 200 Hz. another test is just "rostopic hz AHRS_EKF_quat"
-	# global counter
-	# # if counter == 200:
-	# # 	print('Check')
-	# # 	counter = 0
-
 	# if 50 accelerometer readings were close enough to the gravity vector, robot is stationary
 	# -> do measurement update
 	global accel_counter
-	if np.linalg.norm(a - [0,0,9.8]) < 0.3: # tuned
+
+	# consider doing some sort of averaging rather than the latest g_pred, like in the initialization
+	if np.abs(np.linalg.norm(a) - 9.8021) < 0.05: # if your imu is still
 		accel_counter += 1
 	else:
 		accel_counter = 0
-	if accel_counter == 50:
+	if accel_counter == 200:
 		print("Measurement Update")
 		measurement_update()
 		accel_counter = 0
@@ -277,11 +271,11 @@ def initalize_ahrs_client():
 		sigma_nug = 0.00068585   # rad/s/rt_Hz, Gyro white noise
 		sigma_xa = 0.00001483 # Accel (rate) random walk m/s3 1/sqrt(Hz)
 		sigma_nua = 0.00220313 # accel white noise
-		T = 1000.0/400 # number of measurements over rate of IMU
+		T = 1000.0/200 # number of measurements over rate of IMU
 		g = 9.8 # gravity m/s/s
 
 		cov[:3,:3] = np.diag([sigma_nua/g,sigma_nua/g,0])**2/T
-		cov[3:6,3:6] = np.identity(3)*sigma_nug**2 
+		cov[3:6,3:6] = np.identity(3)*sigma_nug**2/T
 		cov[0:2,7:9] = np.diag([math.sqrt(cov[0,0]*cov[7,7]),math.sqrt(cov[1,1]*cov[8,8])]) # absolutely no idea
 		cov[6:,0:3] = np.transpose(cov[0:3,6:])
 
