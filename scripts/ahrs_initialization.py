@@ -75,7 +75,6 @@ def handle_init_ahrs(req):
 	print("ahrs_initialization_server: Gyro Biases ", gyro_biases)
 	return initRequestResponse(quat, gyro_biases)
 
-
 if __name__ == "__main__":
 
 	# TODO: close node upon calibration
