@@ -12,10 +12,11 @@ roslaunch ahrs.launch
 -To visualize, run rviz, create an Axes and change the reference frame to 'ENU'. Create another Axes and change the reference frame to 'IMU'. 
 
 Wait for 5 seconds for the initialization procedure. Update the following noise terms inside code for your IMU:
-		sigma_xg # Gyro (rate) random walk
-		sigma_nug # Gyro white noise
-		sigma_xa # Accel (rate) random walk 
-		sigma_nua # Accel white noise
+
+		sigma_xg # Gyro (rate) random walk  
+		sigma_nug # Gyro white noise  
+		sigma_xa # Accel (rate) random walk   
+		sigma_nua # Accel white noise  
 
 Tested with Xsens MTI-20.
 Primary reference is 'Aided Navigation: GPS with High Rate Sensors' by Jay A. Farrell, chapter 10.
