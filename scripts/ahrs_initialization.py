@@ -3,7 +3,7 @@
 import rospy
 from sensor_msgs.msg import Imu
 from geometry_msgs.msg import Vector3Stamped, Quaternion
-from imu_ahrs.srv import *
+from imu_ekf_ros.srv import *
 import math
 import numpy as np
 from tf.transformations import quaternion_from_euler

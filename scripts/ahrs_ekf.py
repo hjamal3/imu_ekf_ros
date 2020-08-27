@@ -4,7 +4,7 @@
 import rospy
 from sensor_msgs.msg import Imu
 from geometry_msgs.msg import Vector3Stamped
-from imu_ahrs.srv import *
+from imu_ekf_ros.srv import *
 
 # other
 import numpy as np

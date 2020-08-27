@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <package format="2">
-  <name>imu_ahrs_ros</name>
+  <name>imu_ekf_ros</name>
   <version>0.0.0</version>
-  <description>The imu_ahrs package</description>
+  <description>The imu_ekf package</description>
 
   <!-- One maintainer tag required, multiple allowed, one person per tag -->
   <!-- Example:  -->
