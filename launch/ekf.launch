@@ -1,0 +1,5 @@
+<launch>
+<node pkg="imu_ekf_ros" type="ekf_initialization.py" name="ekf_initialization_server"  output="screen" />
+<node pkg="imu_ekf_ros" type="ekf.py" name="ekf"  output="screen" />
+<node pkg="tf" type="static_transform_publisher" name="map_to_ENU_tf" args="0 0 0 0 0 0 /map /ENU 100"/>
+</launch>

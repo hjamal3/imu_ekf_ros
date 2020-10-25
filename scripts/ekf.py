@@ -217,7 +217,7 @@ def imu_callback(data):
 		accel_counter = 0
 	if accel_counter == 200:
 		print("Measurement Update")
-		measurement_update()
+		#measurement_update()
 		accel_counter = 0
 
 	# increment counter
@@ -284,7 +284,7 @@ def initalize_ahrs_client():
 
 
 if __name__ == "__main__":
-	rospy.init_node('ahrs_ekf')
+	rospy.init_node('ekf')
 
 	# initialize orientation
 	print('Initalizing IMU...')
