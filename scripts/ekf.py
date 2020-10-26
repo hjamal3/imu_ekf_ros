@@ -35,7 +35,7 @@ def measurement_update():
 	R_body_to_nav = np.transpose(b_q.rotation_matrix)
 
 	# measurement matrix gyroscope
-	g_const = 9.81
+	g_const =  9.80665
 	Ha = np.array([[0,g_const,0,0,0,0],[-g_const, 0,0,0,0,0],[0,0,0,0,0,0]]) 	
 	Ha = np.hstack((Ha,R_body_to_nav))
 
@@ -61,7 +61,7 @@ def measurement_update():
 	y_pred = g_pred
 
 	# known gravity vector
-	g = np.array([0,0,9.80])
+	g = np.array([0,0,g_const])
 	y = g
 
 	# residual z
@@ -211,13 +211,13 @@ def imu_callback(data):
 	global accel_counter
 
 	# consider doing some sort of averaging rather than the latest g_pred, like in the initialization
-	if np.abs(np.linalg.norm(a) - 9.8021) < 0.05: # if your imu is still
+	if np.abs(np.linalg.norm(a) -  9.80665) < 0.05: # if your imu is still
 		accel_counter += 1
 	else:
 		accel_counter = 0
 	if accel_counter == 200:
 		print("Measurement Update")
-		#measurement_update()
+		measurement_update()
 		accel_counter = 0
 
 	# increment counter
@@ -260,7 +260,7 @@ def initalize_ahrs_client():
 		cov = np.identity(9)
 
 		# imu hz
-		imu_hz = rospy.get_param('imu_hz', 200)
+		imu_hz = rospy.get_param('imu_hz', 125)
 		global dt
 		dt = 1.0/imu_hz
 
@@ -271,8 +271,8 @@ def initalize_ahrs_client():
 		sigma_nug = 0.00068585   # rad/s/rt_Hz, Gyro white noise
 		sigma_xa = 0.00001483 # Accel (rate) random walk m/s3 1/sqrt(Hz)
 		sigma_nua = 0.00220313 # accel white noise
-		T = 1000.0/200 # number of measurements over rate of IMU
-		g = 9.8 # gravity m/s/s
+		T = 1000.0/125 # number of measurements over rate of IMU
+		g = 9.80665 # gravity m/s/s
 
 		cov[:3,:3] = np.diag([sigma_nua/g,sigma_nua/g,0])**2/T
 		cov[3:6,3:6] = np.identity(3)*sigma_nug**2/T
