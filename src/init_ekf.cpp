@@ -29,18 +29,18 @@ bool handle_init_ekf(imu_ekf_ros::initRequest::Request  &req, imu_ekf_ros::initR
 	Eigen::Vector3d g_b = sum_accel / num_data;
 
 	// initial roll (phi) and pitch (theta)
-	float phi = atan2(-g_b[1],-g_b[2]);
-	float theta = atan2(g_b[0], sqrt(g_b[1]*g_b[1] + g_b[2]*g_b[2]));
+	double phi = atan2(-g_b[1],-g_b[2]);
+	double theta = atan2(g_b[0], sqrt(g_b[1]*g_b[1] + g_b[2]*g_b[2]));
 
 	// set initial yaw to zero
-	float psi = 0;
+	double psi = 0;
 
 	// q is navigation to body transformation: R_bi
 	// YPR: R_ib = R(yaw)R(pitch)R(Roll)
 	// RPY: R_bi = R(-Roll)R(-Pitch)R(-yaw)	
-	Eigen::Quaternion<float> q = Eigen::AngleAxisf(psi, Eigen::Vector3f::UnitZ())
-    * Eigen::AngleAxisf(theta, Eigen::Vector3f::UnitY())
-    * Eigen::AngleAxisf(phi, Eigen::Vector3f::UnitX());
+	Eigen::Quaternion<double> q = Eigen::AngleAxisd(psi, Eigen::Vector3d::UnitZ())
+    * Eigen::AngleAxisd(theta, Eigen::Vector3d::UnitY())
+    * Eigen::AngleAxisd(phi, Eigen::Vector3d::UnitX());
     q = q.inverse(); 
 
 	// compute gyroscope biases
