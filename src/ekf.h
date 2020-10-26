@@ -78,5 +78,5 @@ void computeQdk(const Eigen::Matrix<float,3,3> &R_body_to_nav_next, Eigen::Matri
 void stationaryMeasurementUpdate(const Eigen::Matrix<float,3,3> & R_body_to_nav);
 
 // general Kalman filter
-void EKF(const Eigen::MatrixXf & H, const Eigen::MatrixXf & R, const Eigen::MatrixXf & z, const bool update_bias);
+void EKF(const Eigen::MatrixXf & H, const Eigen::MatrixXf & R, const Eigen::MatrixXf & z);
 //void EKF(const Eigen::MatrixXf & H, const Eigen::MatrixXf & R, const Eigen::MatrixXf & z, const bool update_bias, const bool update_pos, const bool update_orientation);

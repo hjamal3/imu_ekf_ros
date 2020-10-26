@@ -93,13 +93,13 @@ void stationaryMeasurementUpdate(const Eigen::Matrix<float,3,3> & R_body_to_nav)
 	Eigen::Matrix<float,3,1> z = y_meas - y_pred;
 
 	// call filter... TO DO. 3 or 2???
-	EKF(H.block<2,9>(0,0),R.block<2,2>(0,0),z(Eigen::seq(0,1)), false);
-	//EKF(H,R,z, false);
+	//EKF(H.block<2,9>(0,0),R.block<2,2>(0,0),z(Eigen::seq(0,1)), false);
+	EKF(H,R,z);
 
 }
 
 // updates state. general to measurements given appropriately sized 
-void EKF(const Eigen::MatrixXf & H, const Eigen::MatrixXf & R, const Eigen::MatrixXf & z, const bool update_bias)
+void EKF(const Eigen::MatrixXf & H, const Eigen::MatrixXf & R, const Eigen::MatrixXf & z)
 {
 
 	// compute Kalman gain
@@ -323,9 +323,9 @@ void initialize_ekf(ros::NodeHandle &n)
 		// initialize covariance
 		cov.block<2,2>(0,0) = (sigma_nua/filter.g)*(sigma_nua/filter.g)/T*Eigen::Matrix<float,2,2>::Identity();
 		cov.block<3,3>(3,3) = (sigma_nug)*(sigma_nug)/T*Eigen::Matrix<float,3,3>::Identity();
-		//cov.block<2,2>(0,7) = 
+		// TODO: finish this part
+		//cov(0,7) =  cov[0,0]*cov[7,7]
 		//cov.block
-
 		//cov[0:2,7:9] = np.diag([math.sqrt(cov[0,0]*cov[7,7]),math.sqrt(cov[1,1]*cov[8,8])]) # absolutely no idea
 		//cov[6:,0:3] = np.transpose(cov[0:3,6:])
 

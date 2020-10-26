@@ -56,9 +56,9 @@ def measurement_update():
 	K = cov.dot(H.T).dot(np.linalg.inv(R+H.dot(cov).dot(H.T)))
 
 	# access current sensor readings and stack them
-	global g_pred
+	global g_pred_avg
 
-	y_pred = g_pred
+	y_pred = g_pred_avg
 
 	# known gravity vector
 	g = np.array([0,0,g_const])
@@ -197,8 +197,9 @@ def imu_callback(data):
 
 	# predict gravity in navigation frame and store prediction in global variable. used in filter.
 	# subtract out 
-	global g_pred
 	g_pred = R_body_to_nav.dot(x_a - a)
+	global g_pred_sum
+
 
 	# periodically normalize the quaternion
 	global counter
@@ -213,11 +214,16 @@ def imu_callback(data):
 	# consider doing some sort of averaging rather than the latest g_pred, like in the initialization
 	if np.abs(np.linalg.norm(a) -  9.80665) < 0.05: # if your imu is still
 		accel_counter += 1
+		g_pred_sum += g_pred
 	else:
 		accel_counter = 0
+		g_pred_sum = np.array([0.0,0.0,0.0])
 	if accel_counter == 200:
 		print("Measurement Update")
+		global g_pred_avg
+		g_pred_avg = g_pred_sum/200.0
 		measurement_update()
+		g_pred_sum = np.array([0.0,0.0,0.0])
 		accel_counter = 0
 
 	# increment counter
@@ -228,11 +234,11 @@ def imu_callback(data):
 def initalize_ahrs_client():
 
 	# wait for service to become active
-	rospy.wait_for_service('initalize_ahrs')
+	rospy.wait_for_service('initialize_ahrs')
 
 	try:
 		# create service method
-		initalize_ahrs = rospy.ServiceProxy('initalize_ahrs', initRequest)
+		initalize_ahrs = rospy.ServiceProxy('initialize_ahrs', initRequest)
 
 		# request the service
 		print("ahrs_ekf: Starting initialization.")
@@ -248,7 +254,7 @@ def initalize_ahrs_client():
 		b0 = np.array([b.w,b.x,b.y,b.z])
 
 		# numpy gyro and accel bias
-		x_g = np.array([gyro_bias[0],gyro_bias[1],gyro_bias[2]])
+		x_g = np.array([gyro_bias[0].data,gyro_bias[1].data,gyro_bias[2].data])
 		x_a = np.zeros(3)
 
 		# store in global variable numpy state:
@@ -263,6 +269,10 @@ def initalize_ahrs_client():
 		imu_hz = rospy.get_param('imu_hz', 125)
 		global dt
 		dt = 1.0/imu_hz
+
+		# predicted gyro
+		global g_pred_sum
+		g_pred_sum = np.array([0.0,0.0,0.0])
 
 		# TODO: make these noise terms in some launch file or something
 		global sigma_xg, sigma_nug, sigma_xa, sigma_nua
@@ -287,7 +297,7 @@ if __name__ == "__main__":
 	rospy.init_node('ekf')
 
 	# initialize orientation
-	print('Initalizing IMU...')
+	print('Initializing IMU...')
 	initalize_ahrs_client()
 
 	# start callback

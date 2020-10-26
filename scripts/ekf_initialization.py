@@ -8,13 +8,13 @@ import math
 import numpy as np
 from tf.transformations import quaternion_from_euler
 import tf
+from std_msgs.msg import Float64
 
 n_imu = 0
 sum_accel = np.zeros(3)
 sum_gyro = np.zeros(3)
 
 def imu_callback(data):
-
 	# get accel data
 	a = data.linear_acceleration
 
@@ -33,7 +33,7 @@ def imu_callback(data):
 		n_imu += 1
 	else:
 
-		rospy.Service('initalize_ahrs', initRequest, handle_init_ahrs)
+		rospy.Service('initialize_ahrs', initRequest, handle_init_ahrs)
 
 		# shut down subscription to imu data
 		global sub_imu
@@ -69,7 +69,7 @@ def handle_init_ahrs(req):
 
 	# compute gyroscope biases
 	gyro_avg = sum_gyro/num_data
-	gyro_biases = [gyro_avg[0], gyro_avg[1], gyro_avg[2]]
+	gyro_biases = [Float64(gyro_avg[0]), Float64(gyro_avg[1]), Float64(gyro_avg[2])]
 
 	print("ahrs_initialization_server: Initial YPR: ", psi, theta, phi)
 	print("ahrs_initialization_server: Gyro Biases ", gyro_biases)
@@ -78,7 +78,7 @@ def handle_init_ahrs(req):
 if __name__ == "__main__":
 
 	# TODO: close node upon calibration
-	rospy.init_node('ahrs_initialization_server')
+	rospy.init_node('ekf_initialization_server')
 
 	# get number of points to average
 	global num_data
