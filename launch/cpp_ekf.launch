@@ -1,0 +1,5 @@
+<launch>
+<node pkg="imu_ekf_ros" type="init_ekf_node" name="init_ekf"  output="screen" /> 
+<node pkg="imu_ekf_ros" type="ekf_node" name="ekf"  output="screen" />
+<node pkg="tf" type="static_transform_publisher" name="map_to_ENU_tf" args="0 0 0 0 0 0 /map /ENU 100"/>
+</launch>
