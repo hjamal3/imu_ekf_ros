@@ -198,10 +198,10 @@ void imu_callback(const sensor_msgs::Imu::ConstPtr& msg)
 	Eigen::Quaternion<double> b_prev = Eigen::Quaternion<double>(b(0),b(1),b(2),b(3)); // w, x, y, z
 
 	// current accel bias
-	Eigen::Matrix<double,3,1> x_a = state(Eigen::seq(4,6));
+	Eigen::Matrix<double,3,1> x_g = state(Eigen::seq(4,6));
 
 	// current gyro bias
-	Eigen::Matrix<double,3,1> x_g = state(Eigen::seq(6,8));
+	Eigen::Matrix<double,3,1> x_a = state(Eigen::seq(6,8));
 
 	// subtract out gyroscope bias. also w_bn = (-w_nb)
 	Eigen::Matrix<double,3,1> w_bn = -1*(w_nb-x_g);
@@ -233,7 +233,7 @@ void imu_callback(const sensor_msgs::Imu::ConstPtr& msg)
 	Eigen::Matrix<double,3,1> a_i = f_i - g_vec;
 
 	// store in state -> this is time propagation step. 
-	state << b_next.w(),b_next.x(),b_next.y(),b_next.z(), x_a(0),x_a(1),x_a(2), x_g(0),x_g(1),x_g(2);
+	state << b_next.w(),b_next.x(),b_next.y(),b_next.z(), x_g(0),x_g(1),x_g(2), x_a(0),x_a(1),x_a(2);
 
 	/* Update covariance */
 	Eigen::Matrix<double,3,3> R_body_to_nav_next = b_next.inverse().toRotationMatrix();
@@ -260,7 +260,7 @@ void imu_callback(const sensor_msgs::Imu::ConstPtr& msg)
 		g_pred_sum = Eigen::Matrix<double,3,1>::Zero();
 		rover_stationary = false;
 	}
-	// if 50 consecutive stationary, use accel_data
+	// if n consecutive stationary, use accel_data
 	if (accel_counter == 200)
 	{
 		// predict gravity in navigation frame and store prediction in global variable.
@@ -337,8 +337,8 @@ void initialize_ekf(ros::NodeHandle &n)
 		// gravity vector
 		n.param<double>("g",filter.g,9.80665);
 
-		// initialize state: [b, x_a, x_g] = [quaternion, accel bias, gyro bias],  size 10
-		state << b.w,b.x,b.y,b.z,0,0,0,x_g[0],x_g[1],x_g[2];
+		// initialize state: [b, x_a, x_g] = [quaternion, gyro bias, accel bias],  size 10
+		state << b.w,b.x,b.y,b.z,x_g[0],x_g[1],x_g[2], 0,0,0;
 
 		// initialize covariance
 		cov.block<2,2>(0,0) = (sigma_nua/filter.g)*(sigma_nua/filter.g)/T*Eigen::Matrix<double,2,2>::Identity();
