@@ -1,6 +1,7 @@
 # imu_ekf_ros
-A C++ and python ROS package that fuses the accelerometer and gyroscope of an IMU to estimate attitude. 
-![GitHub Logo](/results/screencap.png)
+A C++ and python ROS package that fuses the accelerometer and gyroscope of an IMU to estimate attitude.  
+  
+![GitHub Logo](/results/screencap.png)  
 
 After catkin_make and compiling the scripts, cd into the launch folder and type:
 roslaunch cpp_ekf.launch for the C++ version (better and more up to date).
