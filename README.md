@@ -1,9 +1,10 @@
 # imu_ekf_ros
-A python ROS package that fuses the accelerometer and gyroscope of an IMU to estimate attitude. 
+A C++ and python ROS package that fuses the accelerometer and gyroscope of an IMU to estimate attitude. 
 ![GitHub Logo](/results/screencap.png)
 
 After catkin_make and compiling the scripts, cd into the launch folder and type:
-roslaunch ahrs.launch  
+roslaunch cpp_ekf.launch for the C++ version (better and more up to date).
+roslaunch ekf.launch for the Python version (probably broken).
 
 -This node subscribes to sensor_msgs/IMU messages on the topic '/imu/data', containing accelerometer and gyroscope data.  
 
@@ -18,5 +19,5 @@ Wait for 5 seconds for the initialization procedure. Update the following noise 
 		sigma_xa # Accel (rate) random walk   
 		sigma_nua # Accel white noise  
 
-Tested with Xsens MTI-20.
+Tested with Xsens MTI-20 and Sensonor STIM300.
 Primary reference is 'Aided Navigation: GPS with High Rate Sensors' by Jay A. Farrell, chapter 10.
