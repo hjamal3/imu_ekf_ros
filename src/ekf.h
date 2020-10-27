@@ -68,11 +68,39 @@ void debug(const std::string & str);
 // convert vector to skew symmetric matrix
 void to_skew(const Eigen::Matrix<double,3,1>& v, Eigen::Matrix<double,3,3> &m);
 
+// F matrix. dx_dot = F*dx + G*w 
+void computeF(const Eigen::Matrix<double,3,1> &f_i, const Eigen::Matrix<double,3,3> &R_body_to_nav_next, Eigen::Matrix<double,9,9> &F);
+
+// G matrix. dx_dot = F*dx + G*w 
+void computeG(const Eigen::Matrix<double,3,3> &R_body_to_nav_next, Eigen::Matrix<double,9,12> &G);
+
 // state transition matrix
 void computePhi(const Eigen::Matrix<double,3,1> &f_i, const Eigen::Matrix<double,3,3> &R_body_to_nav_next, Eigen::Matrix<double,9,9> &Phi);
 
 // encoder model noise
 void computeQdk(const Eigen::Matrix<double,3,3> &R_body_to_nav_next, Eigen::Matrix<double,9,9> &Qdk);
+
+// old technique: compute state transition matrix
+void computePhi(const Eigen::Matrix<double,3,1> &f_i,const Eigen::Matrix<double,3,3> &R_body_to_nav_next, Eigen::Matrix<double,9,9> &Phi)
+{
+	// compute F matrix: F is 9 x 9
+	Eigen::Matrix<double,9,9> F;
+
+	computeF(f_i, R_body_to_nav_next, F);
+
+	// compute system transition matrix Phi
+	Phi = (F*filter.dt).exp();
+}
+
+// old technique: compute discrete-time process noise covariance matrix (first order approximation)
+void computeQdk(const Eigen::Matrix<double,3,3> &R_body_to_nav_next, Eigen::Matrix<double,9,9> &Qdk)
+{
+	// compute G. G is 9 x 12.
+	Eigen::Matrix<double,9,12> G;
+	computeG(R_body_to_nav_next,G);
+
+	Qdk = G*(filter.Q)*G.transpose()*filter.dt;
+}
 
 // measurement update using gravity prediction
 void stationaryMeasurementUpdate(const Eigen::Matrix<double,3,3> & R_body_to_nav);

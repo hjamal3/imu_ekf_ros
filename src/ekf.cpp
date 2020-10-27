@@ -22,35 +22,56 @@ v(2), 0, -v(0),
 -v(1), v(0), 0;
 }
 
-// compute state transition matrix
-void computePhi(const Eigen::Matrix<double,3,1> &f_i,const Eigen::Matrix<double,3,3> &R_body_to_nav_next, Eigen::Matrix<double,9,9> &Phi)
+
+void computeF(const Eigen::Matrix<double,3,1> &f_i, const Eigen::Matrix<double,3,3> &R_body_to_nav_next, Eigen::Matrix<double,9,9> &F)
 {
 	// compute F matrix: F is 9 x 9
-	Eigen::Matrix<double,9,9> F = Eigen::Matrix<double,9,9>::Zero();
+	F = Eigen::Matrix<double,9,9>::Zero();
 
 	// store relevant values in F
 	Eigen::Matrix<double,3,3> f_i_skew(3,3);
 	to_skew(f_i,f_i_skew);
 	double lambda_g = -1.0/1000;
 	double lambda_a = -1.0/1000;
-	F.block<3,3>(0,3) = -1*R_body_to_nav_next;
+	F.block<3,3>(0,3) = -1*R_body_to_nav_next; // where does the -1 come from???
 	F.block<3,3>(3,3) = Eigen::Matrix<double,3,3>::Identity()*lambda_g; // Fg
 	F.block<3,3>(6,6) = Eigen::Matrix<double,3,3>::Identity()*lambda_a; // Fa
-
-	// compute system transition matrix Phi
-	Phi = (F*filter.dt).exp();
 }
 
-// compute noise matrix
-void computeQdk(const Eigen::Matrix<double,3,3> &R_body_to_nav_next, Eigen::Matrix<double,9,9> &Qdk)
+void computeG(const Eigen::Matrix<double,3,3> &R_body_to_nav_next, Eigen::Matrix<double,9,12> &G)
 {
 	// compute G. G is 9 x 12.
-	Eigen::Matrix<double,9,12> G = Eigen::Matrix<double,9,12>::Zero();
+	G = Eigen::Matrix<double,9,12>::Zero();
 	G.block<3,3>(0,0) = -1*R_body_to_nav_next;
 	G.block<3,3>(0,6) = -1*R_body_to_nav_next;
 	G.block<3,3>(3,3) = Eigen::Matrix<double,3,3>::Identity();
 	G.block<3,3>(6,9) = Eigen::Matrix<double,3,3>::Identity();
-	Qdk = G*(filter.Q)*G.transpose()*filter.dt;
+}
+
+void computePhiAndQdk(const Eigen::Matrix<double,3,1> &f_i, const Eigen::Matrix<double,3,3> &R_body_to_nav_next, Eigen::Matrix<double,9,9> &Phi, Eigen::Matrix<double,9,9> &Qdk)
+{
+	// van loan algorithm: https://www.cs.cornell.edu/cv/ResearchPDF/computing.integrals.involving.Matrix.Exp.pdf
+	// formulate larger matrix
+	// compute F matrix: F is 9 x 9
+	Eigen::Matrix<double,9,9> F;
+	computeF(f_i, R_body_to_nav_next, F);
+
+	Eigen::Matrix<double,9,12> G;
+	computeG(R_body_to_nav_next, G);
+
+	// empty matrix
+	Eigen::Matrix<double,18,18> A = Eigen::Matrix<double,18,18>::Zero();
+
+	// fill in A matrix according to algorithm
+	A.block<9,9>(0,0) = -F;
+	A.block<9,9>(9,9) = F.transpose();
+	A.block<9,9>(0,9) = G*(filter.Q)*G.transpose();
+	A = A*filter.dt;
+
+	// matrix exponential
+	Eigen::Matrix<double,18,18> B = A.exp();
+	Phi = B.block<9,9>(9,9).transpose();
+	Qdk = Phi*B.block<9,9>(0,9);
 }
 
 void stationaryMeasurementUpdate(const Eigen::Matrix<double,3,3> & R_body_to_nav)
@@ -218,12 +239,10 @@ void imu_callback(const sensor_msgs::Imu::ConstPtr& msg)
 	Eigen::Matrix<double,3,3> R_body_to_nav_next = b_next.inverse().toRotationMatrix();
 
 	// compute state transition matrix Phi
-	Eigen::Matrix<double,9,9> Phi(9,9);
-	computePhi(f_i, R_body_to_nav_next, Phi);
-
 	// compute Qdk (discrete noise). Qdk is 9 x 9
+	Eigen::Matrix<double,9,9> Phi(9,9);
 	Eigen::Matrix<double,9,9> Qdk(9,9);
-	computeQdk(R_body_to_nav_next, Qdk);
+	computePhiAndQdk(f_i, R_body_to_nav_next, Phi, Qdk);
 
 	// update covariance (15x15)
 	cov = Phi*cov*Phi.transpose()+Qdk;
@@ -324,6 +343,7 @@ void initialize_ekf(ros::NodeHandle &n)
 		// initialize covariance
 		cov.block<2,2>(0,0) = (sigma_nua/filter.g)*(sigma_nua/filter.g)/T*Eigen::Matrix<double,2,2>::Identity();
 		cov.block<3,3>(3,3) = (sigma_nug)*(sigma_nug)/T*Eigen::Matrix<double,3,3>::Identity();
+
 		// TODO: finish this part
 		//cov(0,7) =  cov[0,0]*cov[7,7]
 		//cov.block
