@@ -374,7 +374,7 @@ int main(int argc, char **argv)
 {
 	ROS_INFO("EKF node started.");
 
-	ros::init(argc, argv, "ekf_node");
+	ros::init(argc, argv, "imu_ekf_node");
 
 	ros::NodeHandle n;
 

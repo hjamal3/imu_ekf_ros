@@ -140,8 +140,8 @@ include_directories(
 # add_dependencies(${PROJECT_NAME} ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 ## Declare a C++ executable
-add_executable(ekf_node src/ekf.cpp)
-add_executable(init_ekf_node src/init_ekf.cpp)
+add_executable(imu_ekf_node src/ekf.cpp)
+add_executable(init_imu_ekf_node src/init_ekf.cpp)
 ## Rename C++ executable without prefix
 ## The above recommended prefix causes long target names, the following renames the
 ## target back to the shorter version for ease of user use
@@ -150,15 +150,15 @@ add_executable(init_ekf_node src/init_ekf.cpp)
 
 ## Add cmake target dependencies of the executable
 ## same as for the library above
-add_dependencies(ekf_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
-add_dependencies(init_ekf_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+add_dependencies(imu_ekf_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+add_dependencies(init_imu_ekf_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 
 ## Specify libraries to link a library or executable target against
-target_link_libraries(ekf_node
+target_link_libraries(imu_ekf_node
    ${catkin_LIBRARIES}
    Eigen3::Eigen
 )
-target_link_libraries(init_ekf_node
+target_link_libraries(init_imu_ekf_node
    ${catkin_LIBRARIES}
    Eigen3::Eigen
 )

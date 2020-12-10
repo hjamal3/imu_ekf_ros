@@ -92,7 +92,7 @@ int main(int argc, char **argv)
 {
   ROS_INFO("init_ekf node started.");
 
-  ros::init(argc, argv, "init_ekf_node");
+  ros::init(argc, argv, "init_imu_ekf_node");
 
   // create node handle and pointer
   ros::NodeHandle n;
