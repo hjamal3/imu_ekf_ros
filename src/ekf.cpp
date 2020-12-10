@@ -6,8 +6,11 @@
 #include "ros/ros.h"
 #include "sensor_msgs/Imu.h"
 #include "std_msgs/Int32MultiArray.h"
+#include "geometry_msgs/Quaternion.h"
 #include <tf/transform_broadcaster.h>
 #include <cstdlib>
+
+ros::Publisher quat_pub;
 
 void debug(auto str)
 {
@@ -280,6 +283,12 @@ void imu_callback(const sensor_msgs::Imu::ConstPtr& msg)
 		tf::Quaternion q(b_next_body_to_nav.x(),b_next_body_to_nav.y(),b_next_body_to_nav.z(),b_next_body_to_nav.w());
 		transform.setRotation(q);
 		br.sendTransform(tf::StampedTransform(transform, ros::Time::now(), "map", "IMU"));
+		geometry_msgs::Quaternion msg;
+		msg.x = b_next_body_to_nav.x();
+		msg.y = b_next_body_to_nav.y();
+		msg.z = b_next_body_to_nav.z();
+		msg.w = b_next_body_to_nav.w();
+		quat_pub.publish(msg);
 	}
 
 }
@@ -293,6 +302,9 @@ void initialize_ekf(ros::NodeHandle &n)
 
 	// instantiate service class
 	imu_ekf_ros::initRequest srv;
+
+	// publish angles
+	quat_pub = n.advertise<geometry_msgs::Quaternion>("/quat", 1000);
 
 	// call the service
 	if (!client.waitForExistence(ros::Duration(-1)))
