@@ -81,7 +81,7 @@ void imu_callback(const sensor_msgs::Imu::ConstPtr& msg)
 		(*sub_imu_ptr).shutdown();
 
 		// create the service
-		service = (*n_ptr).advertiseService("initialize_ekf", handle_init_ekf);
+		service = (*n_ptr).advertiseService("/initialize_ekf", handle_init_ekf);
 	}
 }
 

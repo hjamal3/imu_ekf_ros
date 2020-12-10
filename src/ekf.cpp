@@ -298,7 +298,7 @@ void initialize_ekf(ros::NodeHandle &n)
 	ROS_INFO("ekf: waiting for initialization service");
 
 	// create client for service
-	ros::ServiceClient client = n.serviceClient<imu_ekf_ros::initRequest>("initialize_ekf");
+	ros::ServiceClient client = n.serviceClient<imu_ekf_ros::initRequest>("/initialize_ekf");
 
 	// instantiate service class
 	imu_ekf_ros::initRequest srv;
