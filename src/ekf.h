@@ -38,12 +38,14 @@ struct EKF_struct {
 		Eigen::Matrix<double,3,3> Ra = Eigen::Matrix<double,3,3>::Zero(); // noise matrix for accelerometer
 		double g; // gravity
 		double dt; // time step
-		int num_data; // number of data collected for initialization
+		double num_data; // number of data collected for initialization
 		Timer timer;
 };
 
 
+// Constants
 const double PI = 2*acos(0.0);
+const int num_stat_measurements = 100;
 
 // variables used throughout algorithm 
 Eigen::Matrix<double,10, 1> state(10,1); // state

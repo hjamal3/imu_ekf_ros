@@ -163,7 +163,7 @@ void EKF(const Eigen::MatrixXd & H, const Eigen::MatrixXd & R, const Eigen::Matr
 	}
 
 	// symmetrify
-	cov = (cov + cov.transpose())/2.0;
+	// cov = (cov + cov.transpose())/2.0;
 	// update covariance
 	cov = (Eigen::Matrix<double,9,9>::Identity()-K*H)*(cov);
 	// symmetrify again
@@ -264,12 +264,12 @@ void imu_callback(const sensor_msgs::Imu::ConstPtr& msg)
 		rover_stationary = false;
 	}
 	// if n consecutive stationary, use accel_data
-	if (accel_counter == 200)
+	if (accel_counter == num_stat_measurements)
 	{
 		// predict gravity in navigation frame and store prediction in global variable.
-		g_pred = g_pred_sum/200.0; // averaging
+		g_pred = g_pred_sum/num_stat_measurements; // averaging
 		accel_counter = 0;
-		g_pred_sum = Eigen::Matrix<double,3,1>::Zero();
+		g_pred_sum << 0,0,0;
 		std::cout << "stationary update" << std::endl;
 		stationaryMeasurementUpdate(R_body_to_nav_next);
 	}
@@ -322,9 +322,9 @@ void initialize_ekf(ros::NodeHandle &n)
 		int num_data, hz; // number of data points used to initialize, imu hz
 		n.param("num_data",num_data,1000);
 		n.param("imu_hz",hz,125);
-		filter.dt = 1.0/hz;
-		filter.num_data = num_data;
-		int T = num_data/hz;  //number of measurements over rate of IMU
+		filter.dt = 1.0/(double)hz;
+		filter.num_data = (double)num_data;
+		double T = num_data/hz;  //number of measurements over rate of IMU
 
 		// initialize noise terms
 		double sigma_xg, sigma_nug, sigma_xa, sigma_nua;
@@ -333,11 +333,10 @@ void initialize_ekf(ros::NodeHandle &n)
 		n.param<double>("sigma_xa",sigma_xa,0.00001483);  // Accel (rate) random walk m/s3 1/sqrt(Hz)
 		n.param<double>("sigma_nua",sigma_nua,0.00220313); // accel white noise
 
-		double sigma_in = 0.0000;
 		// noise matrix for IMU (Q)
 		for (int i = 0; i < 3; i++)
 		{
-			filter.Q(i,i) = sigma_in*sigma_in;
+			filter.Q(i,i) = sigma_nua*sigma_nua;
 			filter.Q(3+i,3+i) = sigma_xg*sigma_xg;
 			filter.Q(6+i,6+i) = sigma_nug*sigma_nug;
 			filter.Q(9+i,9+i) = sigma_xa*sigma_xa;
