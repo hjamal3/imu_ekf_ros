@@ -253,7 +253,7 @@ void imu_callback(const sensor_msgs::Imu::ConstPtr& msg)
 	/* Measurement update using accelerometer to correct roll and pitch */
 	// if 50 accelerometer readings were close enough to the gravity vector, robot is stationary
 	//  check if current measurement is stationary
-	if (abs(f_b.norm() - filter.g) < 0.05) // tuned. test: you should never be able to hold the imu in your hand and have an update.
+	if (abs(f_b.norm() - filter.g) < stat_acces_thresh) // tuned. test: you should never be able to hold the imu in your hand and have an update.
 	{
 		accel_counter++;
 		g_pred_sum += R_body_to_nav_next*(f_b); // R*(x_a-y_a) TODO: CHECK THIS

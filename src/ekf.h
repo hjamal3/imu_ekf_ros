@@ -46,6 +46,7 @@ struct EKF_struct {
 // Constants
 const double PI = 2*acos(0.0);
 const int num_stat_measurements = 100;
+const double stat_acces_thresh = 0.1; // m/s^2
 
 // variables used throughout algorithm 
 Eigen::Matrix<double,10, 1> state(10,1); // state
