@@ -99,7 +99,7 @@ int main(int argc, char **argv)
   n_ptr = &n;
 
   // get number of data items to average from parameter server
-  n.param("num_data", num_data,1000);
+  n.param("num_data", num_data,500);
 
   // imu callback
   ros::Subscriber sub_imu = n.subscribe("/imu/data", 10, imu_callback);

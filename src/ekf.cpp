@@ -155,12 +155,8 @@ void EKF(const Eigen::MatrixXd & H, const Eigen::MatrixXd & R, const Eigen::Matr
 
 	// update state
 	state.block<4,1>(0,0) << b_next.w(), b_next.x(), b_next.y(), b_next.z(); // update quaternion: [w, x, y, z]
-
-	if (true)
-	{
-		state.block<3,1>(4,0) += dx(Eigen::seq(3,5)); // update accel bias
-		state.block<3,1>(7,0) += dx(Eigen::seq(6,8)); // update gyro bias
-	}
+	state.block<3,1>(4,0) += dx(Eigen::seq(3,5)); // update accel bias
+	state.block<3,1>(7,0) += dx(Eigen::seq(6,8)); // update gyro bias
 
 	// symmetrify
 	// cov = (cov + cov.transpose())/2.0;
@@ -304,7 +300,7 @@ void initialize_ekf(ros::NodeHandle &n)
 	imu_ekf_ros::initRequest srv;
 
 	// publish angles
-	quat_pub = n.advertise<geometry_msgs::Quaternion>("/quat", 1000);
+	quat_pub = n.advertise<geometry_msgs::Quaternion>("/quat", 0);
 
 	// call the service
 	if (!client.waitForExistence(ros::Duration(-1)))
@@ -320,7 +316,7 @@ void initialize_ekf(ros::NodeHandle &n)
 
 		// filter rate parameters
 		int num_data, hz; // number of data points used to initialize, imu hz
-		n.param("num_data",num_data,1000);
+		n.param("num_data",num_data,500);
 		n.param("imu_hz",hz,125);
 		filter.dt = 1.0/(double)hz;
 		filter.num_data = (double)num_data;
@@ -365,6 +361,7 @@ void initialize_ekf(ros::NodeHandle &n)
 	else
 	{
 		ROS_ERROR("Failed to call service initialize_ekf.");
+		ros::shutdown();
 	}
 }
 
