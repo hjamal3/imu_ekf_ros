@@ -55,7 +55,13 @@ bool handle_init_ekf(imu_ekf_ros::initRequest::Request  &req, imu_ekf_ros::initR
 	res.init_orientation.z = q.z();
 	res.init_orientation.w = q.w();
 
+	ROS_INFO("init_ekf: processed response");
 
+	if (true)
+	{
+		std::cout << gyro_biases << std::endl;
+		std::cout << q << std::endl;
+	}
 }
 
 void imu_callback(const sensor_msgs::Imu::ConstPtr& msg)
@@ -90,19 +96,19 @@ void imu_callback(const sensor_msgs::Imu::ConstPtr& msg)
 
 int main(int argc, char **argv)
 {
-  ROS_INFO("init_ekf node started.");
+	ROS_INFO("init_ekf node started.");
 
-  ros::init(argc, argv, "init_imu_ekf_node");
+	ros::init(argc, argv, "init_imu_ekf_node");
 
-  // create node handle and pointer
-  ros::NodeHandle n;
-  n_ptr = &n;
+	// create node handle and pointer
+	ros::NodeHandle n;
+	n_ptr = &n;
 
-  // get number of data items to average from parameter server
-  n.param("num_data", num_data,500);
+	// get number of data items to average from parameter server
+	n.param("num_data", num_data, 500);
 
-  // imu callback
-  ros::Subscriber sub_imu = n.subscribe("/imu/data", 10, imu_callback);
-  sub_imu_ptr = &sub_imu;
-  ros::spin();
+	// imu callback
+	ros::Subscriber sub_imu = n.subscribe("/imu/data", 10, imu_callback);
+	sub_imu_ptr = &sub_imu;
+	ros::spin();
 }

@@ -6,36 +6,34 @@
 #include "ros/ros.h"
 #include "sensor_msgs/Imu.h"
 #include "std_msgs/Int32MultiArray.h"
+#include "std_msgs/Float64.h"
 #include "geometry_msgs/Quaternion.h"
 #include <tf/transform_broadcaster.h>
 #include <cstdlib>
 
 ros::Publisher quat_pub;
+static int counter = 0;
 
 void debug(auto str)
 {
-std::cout << str << std::endl;
+	std::cout << str << std::endl;
 }
 
 // convert vector to 3x3 skew symmetric matrix
 void to_skew(const Eigen::Matrix<double,3,1> &v, Eigen::Matrix<double,3,3> &m)
 {
-m << 0, -v(2), v(1),
-v(2), 0, -v(0),
--v(1), v(0), 0;
+	m << 0, -v(2), v(1),
+	v(2), 0, -v(0),
+	-v(1), v(0), 0;
 }
-
 
 void computeF(const Eigen::Matrix<double,3,1> &f_i, const Eigen::Matrix<double,3,3> &R_body_to_nav_next, Eigen::Matrix<double,9,9> &F)
 {
-	// compute F matrix: F is 9 x 9
-	F = Eigen::Matrix<double,9,9>::Zero();
-
 	// store relevant values in F
-	Eigen::Matrix<double,3,3> f_i_skew(3,3);
+	static Eigen::Matrix<double,3,3> f_i_skew(3,3);
 	to_skew(f_i,f_i_skew);
-	double lambda_g = -1.0/1000;
-	double lambda_a = -1.0/1000;
+	const double lambda_g = -1.0/100;
+	const double lambda_a = -1.0/100;
 	F.block<3,3>(0,3) = -1*R_body_to_nav_next; // where does the -1 come from???
 	F.block<3,3>(3,3) = Eigen::Matrix<double,3,3>::Identity()*lambda_g; // Fg
 	F.block<3,3>(6,6) = Eigen::Matrix<double,3,3>::Identity()*lambda_a; // Fa
@@ -43,8 +41,6 @@ void computeF(const Eigen::Matrix<double,3,1> &f_i, const Eigen::Matrix<double,3
 
 void computeG(const Eigen::Matrix<double,3,3> &R_body_to_nav_next, Eigen::Matrix<double,9,12> &G)
 {
-	// compute G. G is 9 x 12.
-	G = Eigen::Matrix<double,9,12>::Zero();
 	G.block<3,3>(0,0) = -1*R_body_to_nav_next;
 	G.block<3,3>(0,6) = -1*R_body_to_nav_next;
 	G.block<3,3>(3,3) = Eigen::Matrix<double,3,3>::Identity();
@@ -56,14 +52,15 @@ void computePhiAndQdk(const Eigen::Matrix<double,3,1> &f_i, const Eigen::Matrix<
 	// van loan algorithm: https://www.cs.cornell.edu/cv/ResearchPDF/computing.integrals.involving.Matrix.Exp.pdf
 	// formulate larger matrix
 	// compute F matrix: F is 9 x 9
-	Eigen::Matrix<double,9,9> F;
+	static Eigen::Matrix<double,9,9> F = Eigen::Matrix<double,9,9>::Zero();;
 	computeF(f_i, R_body_to_nav_next, F);
 
-	Eigen::Matrix<double,9,12> G;
+	// compute G. G is 9 x 12.
+	static Eigen::Matrix<double,9,12> G = Eigen::Matrix<double,9,12>::Zero();
 	computeG(R_body_to_nav_next, G);
 
 	// empty matrix
-	Eigen::Matrix<double,18,18> A = Eigen::Matrix<double,18,18>::Zero();
+	static Eigen::Matrix<double,18,18> A = Eigen::Matrix<double,18,18>::Zero();
 
 	// fill in A matrix according to algorithm
 	A.block<9,9>(0,0) = -F;
@@ -83,29 +80,18 @@ void stationaryMeasurementUpdate(const Eigen::Matrix<double,3,3> & R_body_to_nav
 	rover_stationary = false;
 
 	// stationary update matrix: Ha is 3 x 9
-	Eigen::Matrix<double,3,9> Ha = Eigen::Matrix<double,3,9>::Zero();
+	static Eigen::Matrix<double,3,9> Ha = Eigen::Matrix<double,3,9>::Zero();
 
 	// known gravity
 	Eigen::Matrix<double,3,1> g_meas(0,0,filter.g);
-	Eigen::Matrix<double,3,3> g_skew(3,3);
+	static Eigen::Matrix<double,3,3> g_skew(3,3);
 	to_skew(g_meas, g_skew);
 	Ha.block<3,3>(0,0) = -1*g_skew;
 	Ha.block<3,3>(0,6) = R_body_to_nav;
 
-	// noise matrix
-	Eigen::Matrix<double,3,3> Ra = filter.Ra;
-
-	// variables to fill -> I kept it like this for reviewer clarity. TODO refactor to shorten.
-	Eigen::MatrixXd H; // measurement matrix
-	Eigen::MatrixXd R; // noise matrix
-	Eigen::MatrixXd y_pred; // predicted measurement
-	Eigen::MatrixXd y_meas; // actual measurement 
-
 	// measurement and noise matrices
-	H = Ha;
-	R = Ra;
-	y_pred = Eigen::Matrix<double,3,1>::Zero();
-	y_meas = Eigen::Matrix<double,3,1>::Zero();
+	static Eigen::MatrixXd y_pred = Eigen::Matrix<double,3,1>::Zero(); // predicted measurement
+	static Eigen::MatrixXd y_meas = Eigen::Matrix<double,3,1>::Zero(); // actual measurement 
 
 	// predicted measurement is gravity 
 	y_pred << g_pred(0), g_pred(1), g_pred(2);
@@ -117,9 +103,66 @@ void stationaryMeasurementUpdate(const Eigen::Matrix<double,3,3> & R_body_to_nav
 	Eigen::Matrix<double,3,1> z = y_meas - y_pred;
 
 	// call filter... TO DO. 3 or 2???
-	EKF(H.block<2,9>(0,0),R.block<2,2>(0,0),z(Eigen::seq(0,1)));
-	//EKF(H,R,z);
+	EKF(Ha.block<2,9>(0,0),filter.Ra.block<2,2>(0,0),z(Eigen::seq(0,1)));
+}
 
+// input: measured heading of rover with respect to inertial z axis
+void sun_sensor_callback(const std_msgs::Float64::ConstPtr& msg)
+{
+	// process ros data and compute unit vector. in reality this converts sun sensor readings to a 3D sun vecor
+	// for now this will just give ground truth sun for testing
+	double heading = msg->data;
+	double x = cos(heading);
+	double y = sin(heading);
+
+	// process current orientation and measure predicted heading (x-axis)
+	Eigen::Quaternion<double> b = Eigen::Quaternion<double>(state(0),state(1),state(2),state(3));
+	Eigen::Vector3d s_b;
+	s_b << 1, 0, 0; // you predict the sun straight ahead
+	Eigen::Vector3d s_i = b.inverse()._transformVector(s_b);
+
+	// stationary update matrix: Hs is 3 x 9
+	static Eigen::Matrix<double,3,9> Hs = Eigen::Matrix<double,3,9>::Zero();
+
+	// // noise matrix
+	static Eigen::Matrix<double,3,3> Rs(3,3);
+	Rs << 0.2, 0.0, 0.0, 0.0, 0.2, 0.0, 0.0, 0.0, 0.2;
+
+	// known sensor reading
+	Eigen::Matrix<double,3,1> s_meas(x,y,0);
+	Eigen::Matrix<double,3,3> s_skew(3,3);
+	to_skew(s_meas, s_skew);
+	Hs.block<3,3>(0,0) = -1*s_skew;
+
+	// // variables to fill -> I kept it like this for reviewer clarity. TODO refactor to shorten.
+	Eigen::MatrixXd H; // measurement matrix
+	Eigen::MatrixXd R; // noise matrix
+	Eigen::MatrixXd y_pred; // predicted measurement
+	Eigen::MatrixXd y_meas; // actual measurement 
+
+	// measurement and noise matrices
+	H = Hs;
+	R = Rs;
+	y_pred = Eigen::Matrix<double,3,1>::Zero();
+	y_meas = Eigen::Matrix<double,3,1>::Zero();
+
+	// predicted heading  
+	y_pred << s_i(0), s_i(1), s_i(2);
+
+	// measurement (from ephemeris)
+	y_meas << s_meas(0), s_meas(1), s_meas(2);
+
+	// in reality i would use the sensor reading to predict the unit vector and compare 
+	// it to what is in the solar model. this is just for testing.
+
+	// predicted gravity: g_pred
+	Eigen::Matrix<double,3,1> z = y_meas - y_pred;
+
+	// only correct heading herror
+	EKF(H.block<3,9>(0,0),R.block<3,3>(0,0),z.block<3,1>(0,0));
+	// EKF(H.block<1,9>(2,0),R.block<1,1>(0,0),z.block<1,1>(2, 0));
+	// std::cout << H.block<1,9>(2,0) << std::endl;
+	std::cout << cov(2,2) << std::endl;
 }
 
 // updates state. general to measurements given appropriately sized 
@@ -134,10 +177,10 @@ void EKF(const Eigen::MatrixXd & H, const Eigen::MatrixXd & R, const Eigen::Matr
 
 	// 	rotation update 
 	Eigen::Matrix<double,3,1> ro = dx(Eigen::seq(0,2));
-
-	Eigen::Matrix<double,3,3> P(3,3);
+	static Eigen::Matrix<double,3,3> P(3,3);
 	to_skew(ro,P);
 	// predicted orientation
+
 	Eigen::Quaternion<double> b_q = Eigen::Quaternion<double>(state[0],state[1],state[2],state[3]);
 	Eigen::Matrix<double,3,3> R_nav_to_body = b_q.toRotationMatrix();
 	Eigen::Matrix<double,3,3> R_nav_to_body_next = R_nav_to_body*(Eigen::Matrix<double,3,3>::Identity() - P); // (10.67)
@@ -158,11 +201,10 @@ void EKF(const Eigen::MatrixXd & H, const Eigen::MatrixXd & R, const Eigen::Matr
 	state.block<3,1>(4,0) += dx(Eigen::seq(3,5)); // update accel bias
 	state.block<3,1>(7,0) += dx(Eigen::seq(6,8)); // update gyro bias
 
-	// symmetrify
-	// cov = (cov + cov.transpose())/2.0;
 	// update covariance
 	cov = (Eigen::Matrix<double,9,9>::Identity()-K*H)*(cov);
-	// symmetrify again
+
+	// symmetrify 
 	cov = (cov + cov.transpose())/2.0;
 
 	if (false)
@@ -239,8 +281,8 @@ void imu_callback(const sensor_msgs::Imu::ConstPtr& msg)
 
 	// compute state transition matrix Phi
 	// compute Qdk (discrete noise). Qdk is 9 x 9
-	Eigen::Matrix<double,9,9> Phi(9,9);
-	Eigen::Matrix<double,9,9> Qdk(9,9);
+	static Eigen::Matrix<double,9,9> Phi(9,9);
+	static Eigen::Matrix<double,9,9> Qdk(9,9);
 	computePhiAndQdk(f_i, R_body_to_nav_next, Phi, Qdk);
 
 	// update covariance (15x15)
@@ -266,7 +308,9 @@ void imu_callback(const sensor_msgs::Imu::ConstPtr& msg)
 		g_pred = g_pred_sum/num_stat_measurements; // averaging
 		accel_counter = 0;
 		g_pred_sum << 0,0,0;
-		std::cout << "stationary update" << std::endl;
+		static int stat_ctr = 0;
+		std::cout << "stationary update: " << stat_ctr << std::endl;
+		stat_ctr++;
 		stationaryMeasurementUpdate(R_body_to_nav_next);
 	}
 
@@ -287,6 +331,7 @@ void imu_callback(const sensor_msgs::Imu::ConstPtr& msg)
 		quat_pub.publish(msg);
 	}
 
+	counter++;
 }
 
 void initialize_ekf(ros::NodeHandle &n)
@@ -305,18 +350,21 @@ void initialize_ekf(ros::NodeHandle &n)
 	// call the service
 	if (!client.waitForExistence(ros::Duration(-1)))
 	{
-		ROS_ERROR("initialize_ekf didn't send data");
+		ROS_ERROR("ekf: initialize_ekf didn't send data");
+	} else 
+	{
+		ROS_INFO("ekf: connected to initialize service");
 	}
 	if (client.call(srv))
 	{
-		ROS_INFO("initialize_ekf responded with data.");
+		ROS_INFO("ekf: initialize_ekf responded with data.");
 		// store received data
 		geometry_msgs::Quaternion b = srv.response.init_orientation;
 		Eigen::Vector3d x_g = {srv.response.gyro_bias[0].data, srv.response.gyro_bias[1].data, srv.response.gyro_bias[2].data};
 
 		// filter rate parameters
 		int num_data, hz; // number of data points used to initialize, imu hz
-		n.param("num_data",num_data,500);
+		n.param("num_data",num_data,125);
 		n.param("imu_hz",hz,125);
 		filter.dt = 1.0/(double)hz;
 		filter.num_data = (double)num_data;
@@ -349,6 +397,7 @@ void initialize_ekf(ros::NodeHandle &n)
 
 		// initialize covariance
 		cov.block<2,2>(0,0) = (sigma_nua/filter.g)*(sigma_nua/filter.g)/T*Eigen::Matrix<double,2,2>::Identity();
+		cov(2,2) = 10.0;
 		cov.block<3,3>(3,3) = (sigma_nug)*(sigma_nug)/T*Eigen::Matrix<double,3,3>::Identity();
 
 		// TODO: finish this part
@@ -356,11 +405,10 @@ void initialize_ekf(ros::NodeHandle &n)
 		//cov.block
 		//cov[0:2,7:9] = np.diag([math.sqrt(cov[0,0]*cov[7,7]),math.sqrt(cov[1,1]*cov[8,8])]) # absolutely no idea
 		//cov[6:,0:3] = np.transpose(cov[0:3,6:])
-
 	}
 	else
 	{
-		ROS_ERROR("Failed to call service initialize_ekf.");
+		ROS_ERROR("ekf: Failed to call service initialize_ekf.");
 		ros::shutdown();
 	}
 }
@@ -378,9 +426,14 @@ int main(int argc, char **argv)
 	initialize_ekf(n);
 
 	// imu callback
-	ros::Subscriber sub_imu = n.subscribe("/imu/data", 1, imu_callback);
+	ros::Subscriber sub_imu = n.subscribe("/imu/data", 1000, imu_callback);
+
+	// sun sensor callback
+	ros::Subscriber sub_sunsensor = n.subscribe("/sun_sensor", 1, sun_sensor_callback);
 
 	ros::spin();
+
+	std::cout << counter << std::endl;
 
 	return 0;
 }
