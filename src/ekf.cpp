@@ -6,7 +6,7 @@
 #include "ros/ros.h"
 #include "sensor_msgs/Imu.h"
 #include "std_msgs/Int32MultiArray.h"
-#include "std_msgs/Float64.h"
+#include "geometry_msgs/Vector3.h"
 #include "geometry_msgs/Quaternion.h"
 #include <tf/transform_broadcaster.h>
 #include <cstdlib>
@@ -103,70 +103,58 @@ void stationaryMeasurementUpdate(const Eigen::Matrix<double,3,3> & R_body_to_nav
 	Eigen::Matrix<double,3,1> z = y_meas - y_pred;
 
 	// call filter... TO DO. 3 or 2???
-	EKF(Ha.block<2,9>(0,0),filter.Ra.block<2,2>(0,0),z(Eigen::seq(0,1)));
+	EKF(Ha.block<2,9>(0,0),filter.Ra.block<2,2>(0,0),z(Eigen::seq(0,1)), ACCELEROMETER);
 }
 
-// input: measured heading of rover with respect to inertial z axis
-void sun_sensor_callback(const std_msgs::Float64::ConstPtr& msg)
+// input: a 3D vector in the inertial frame of the rover
+// for testing, using the surveyed x-axis of the robot
+// in reality, the measured sun ray
+void sun_sensor_callback(const geometry_msgs::Vector3::ConstPtr& msg)
 {
-	// process ros data and compute unit vector. in reality this converts sun sensor readings to a 3D sun vecor
-	// for now this will just give ground truth sun for testing
-	double heading = msg->data;
-	double x = cos(heading);
-	double y = sin(heading);
-
-	// process current orientation and measure predicted heading (x-axis)
+	std::cout << "Sun sensor update" << std::endl;
+	// input is a 3D sun ray in the inertial frame
 	Eigen::Quaternion<double> b = Eigen::Quaternion<double>(state(0),state(1),state(2),state(3));
-	Eigen::Vector3d s_b;
-	s_b << 1, 0, 0; // you predict the sun straight ahead
-	Eigen::Vector3d s_i = b.inverse()._transformVector(s_b);
+	Eigen::Quaternion<double> b_body_to_nav = b.inverse();
 
 	// stationary update matrix: Hs is 3 x 9
 	static Eigen::Matrix<double,3,9> Hs = Eigen::Matrix<double,3,9>::Zero();
 
 	// // noise matrix
 	static Eigen::Matrix<double,3,3> Rs(3,3);
-	Rs << 0.2, 0.0, 0.0, 0.0, 0.2, 0.0, 0.0, 0.0, 0.2;
+	const double angle_uncertainty = 0.1;
+	Rs << angle_uncertainty/180.0*PI, 0.0, 0.0, 0.0, angle_uncertainty/180.0*PI, 0.0, 0.0, 0.0, angle_uncertainty/180.0*PI;
 
 	// known sensor reading
-	Eigen::Matrix<double,3,1> s_meas(x,y,0);
-	Eigen::Matrix<double,3,3> s_skew(3,3);
+	Eigen::Matrix<double,3,1> s_pred = b_body_to_nav._transformVector({1,0,0}); // predict the x-axis. in place of true sensor reading
+	Eigen::Matrix<double,3,1> s_meas = {msg->x, msg->y, msg->z};
+	s_meas = s_meas/s_meas.norm(); // normalize the model output
+
+	static Eigen::Matrix<double,3,3> s_skew(3,3);
 	to_skew(s_meas, s_skew);
 	Hs.block<3,3>(0,0) = -1*s_skew;
 
-	// // variables to fill -> I kept it like this for reviewer clarity. TODO refactor to shorten.
-	Eigen::MatrixXd H; // measurement matrix
-	Eigen::MatrixXd R; // noise matrix
-	Eigen::MatrixXd y_pred; // predicted measurement
-	Eigen::MatrixXd y_meas; // actual measurement 
+	// no corrections to tilt and roll
+	Hs(0,1) = 0.0;
+	Hs(1,0) = 0.0;
 
-	// measurement and noise matrices
-	H = Hs;
-	R = Rs;
-	y_pred = Eigen::Matrix<double,3,1>::Zero();
-	y_meas = Eigen::Matrix<double,3,1>::Zero();
+	static Eigen::MatrixXd y_pred = Eigen::Matrix<double,3,1>::Zero();
+	static Eigen::MatrixXd y_meas = Eigen::Matrix<double,3,1>::Zero();
 
 	// predicted heading  
-	y_pred << s_i(0), s_i(1), s_i(2);
+	y_pred << s_pred(0), s_pred(1), s_pred(2);
 
 	// measurement (from ephemeris)
 	y_meas << s_meas(0), s_meas(1), s_meas(2);
 
-	// in reality i would use the sensor reading to predict the unit vector and compare 
-	// it to what is in the solar model. this is just for testing.
-
 	// predicted gravity: g_pred
 	Eigen::Matrix<double,3,1> z = y_meas - y_pred;
 
-	// only correct heading herror
-	EKF(H.block<3,9>(0,0),R.block<3,3>(0,0),z.block<3,1>(0,0));
-	// EKF(H.block<1,9>(2,0),R.block<1,1>(0,0),z.block<1,1>(2, 0));
-	// std::cout << H.block<1,9>(2,0) << std::endl;
-	std::cout << cov(2,2) << std::endl;
+	// only correct heading error
+	EKF(Hs.block<2,9>(0,0),Rs.block<2,2>(0,0),z.block<2,1>(0,0), SUN_SENSOR);
 }
 
 // updates state. general to measurements given appropriately sized 
-void EKF(const Eigen::MatrixXd & H, const Eigen::MatrixXd & R, const Eigen::MatrixXd & z)
+void EKF(const Eigen::MatrixXd & H, const Eigen::MatrixXd & R, const Eigen::MatrixXd & z, const SENSOR_TYPE sensor_type)
 {
 
 	// compute Kalman gain
@@ -179,8 +167,15 @@ void EKF(const Eigen::MatrixXd & H, const Eigen::MatrixXd & R, const Eigen::Matr
 	Eigen::Matrix<double,3,1> ro = dx(Eigen::seq(0,2));
 	static Eigen::Matrix<double,3,3> P(3,3);
 	to_skew(ro,P);
-	// predicted orientation
 
+	// only correct the z-axis (yaw)
+	if (sensor_type == SUN_SENSOR)
+	{
+		ro(0) = 0;
+		ro(1) = 0;
+	}
+
+	// predicted orientation
 	Eigen::Quaternion<double> b_q = Eigen::Quaternion<double>(state[0],state[1],state[2],state[3]);
 	Eigen::Matrix<double,3,3> R_nav_to_body = b_q.toRotationMatrix();
 	Eigen::Matrix<double,3,3> R_nav_to_body_next = R_nav_to_body*(Eigen::Matrix<double,3,3>::Identity() - P); // (10.67)
@@ -397,7 +392,7 @@ void initialize_ekf(ros::NodeHandle &n)
 
 		// initialize covariance
 		cov.block<2,2>(0,0) = (sigma_nua/filter.g)*(sigma_nua/filter.g)/T*Eigen::Matrix<double,2,2>::Identity();
-		cov(2,2) = 10.0;
+		cov(2,2) = 1000*PI/180.0;
 		cov.block<3,3>(3,3) = (sigma_nug)*(sigma_nug)/T*Eigen::Matrix<double,3,3>::Identity();
 
 		// TODO: finish this part

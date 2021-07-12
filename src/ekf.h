@@ -31,6 +31,12 @@ private:
 	}
 };
 
+enum SENSOR_TYPE
+{
+	SUN_SENSOR = 1,
+	ACCELEROMETER = 2
+};
+
  // struct which contains constant parameters used in algorithm
 struct EKF_struct {
 		// global variables in filter
@@ -109,5 +115,5 @@ void computeQdk(const Eigen::Matrix<double,3,3> &R_body_to_nav_next, Eigen::Matr
 void stationaryMeasurementUpdate(const Eigen::Matrix<double,3,3> & R_body_to_nav);
 
 // general Kalman filter
-void EKF(const Eigen::MatrixXd & H, const Eigen::MatrixXd & R, const Eigen::MatrixXd & z);
+void EKF(const Eigen::MatrixXd & H, const Eigen::MatrixXd & R, const Eigen::MatrixXd & z, const SENSOR_TYPE sensor_type);
 //void EKF(const Eigen::MatrixXf & H, const Eigen::MatrixXf & R, const Eigen::MatrixXf & z, const bool update_bias, const bool update_pos, const bool update_orientation);
