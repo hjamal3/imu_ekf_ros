@@ -119,9 +119,9 @@ void sun_sensor_callback(const geometry_msgs::Vector3::ConstPtr& msg)
 	// stationary update matrix: Hs is 3 x 9
 	static Eigen::Matrix<double,3,9> Hs = Eigen::Matrix<double,3,9>::Zero();
 
-	// // noise matrix
+	// noise matrix
 	static Eigen::Matrix<double,3,3> Rs(3,3);
-	const double angle_uncertainty = 0.1;
+	const double angle_uncertainty = 0.1; // rad^2
 	Rs << angle_uncertainty/180.0*PI, 0.0, 0.0, 0.0, angle_uncertainty/180.0*PI, 0.0, 0.0, 0.0, angle_uncertainty/180.0*PI;
 
 	// known sensor reading
@@ -166,14 +166,13 @@ void EKF(const Eigen::MatrixXd & H, const Eigen::MatrixXd & R, const Eigen::Matr
 	// 	rotation update 
 	Eigen::Matrix<double,3,1> ro = dx(Eigen::seq(0,2));
 	static Eigen::Matrix<double,3,3> P(3,3);
-	to_skew(ro,P);
-
 	// only correct the z-axis (yaw)
 	if (sensor_type == SUN_SENSOR)
 	{
 		ro(0) = 0;
 		ro(1) = 0;
 	}
+	to_skew(ro,P);
 
 	// predicted orientation
 	Eigen::Quaternion<double> b_q = Eigen::Quaternion<double>(state[0],state[1],state[2],state[3]);
