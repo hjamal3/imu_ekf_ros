@@ -77,8 +77,9 @@ private:
 	// State vector [orientation, gyro bias, accel bias]
 	Eigen::Matrix<double,10, 1> m_state; // state
 	Eigen::Matrix<double, 9, 9> m_cov; // covariance
-	Eigen::Matrix<double,3,1> m_g_pred;
-	Eigen::Matrix<double,3,1> m_g_pred_sum;
+	Eigen::Matrix<double,3,1> m_g_pred; // predicted gravity
+	Eigen::Matrix<double,3,1> m_g_pred_sum; // sum of all predicted gravities
+	Eigen::Matrix<double,3,1> m_g_true; // true gravity vector
 	Eigen::Matrix<double,3,3> Re; // measurement noise matrix
 	EKF_struct m_filter; // filter object
 
@@ -87,21 +88,24 @@ private:
 	ros::Subscriber m_sun_sensor_subscriber;
 	ros::Publisher m_orientation_pub;
 
-	const double PI = 2*acos(0.0);
-
-	// variables used for measurement update if rover stationary
+	// PI
+	static constexpr double PI = 2*acos(0.0);
 
 	// number of consecutive accelerometer measurments to declare robot is stationary
-	const int NUM_STATIONARY = 125;
+	static constexpr int NUM_STATIONARY = 125;
 
 	// acceleration threshold to detect if robot is stationary
-	const double ACCEL_THRESH = 0.1; // m/s^2
+	static constexpr double ACCEL_THRESH = 0.1; // m/s^2
 
 	// is the rover stationary
 	bool m_rover_stationary = false; 
 
 	// stationary counts
 	int m_accel_counter = 0;
+
+	// noise parameters for random walk
+	static constexpr double m_lambda_g = -1.0/100;
+	static constexpr double m_lambda_a = -1.0/100;
 
 	enum SENSOR_TYPE
 	{

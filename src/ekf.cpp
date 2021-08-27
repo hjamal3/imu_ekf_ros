@@ -10,11 +10,9 @@ void IMU_EKF::computeF(const Eigen::Matrix<double,3,1> &f_i,
 	// store relevant values in F
 	static Eigen::Matrix<double,3,3> f_i_skew(3,3);
 	to_skew(f_i,f_i_skew);
-	const double lambda_g = -1.0/100;
-	const double lambda_a = -1.0/100;
 	F.block<3,3>(0,3) = -1*R_body_to_nav_next; // where does the -1 come from???
-	F.block<3,3>(3,3) = Eigen::Matrix<double,3,3>::Identity()*lambda_g; // Fg
-	F.block<3,3>(6,6) = Eigen::Matrix<double,3,3>::Identity()*lambda_a; // Fa
+	F.block<3,3>(3,3) = Eigen::Matrix<double,3,3>::Identity()*m_lambda_g; // Fg
+	F.block<3,3>(6,6) = Eigen::Matrix<double,3,3>::Identity()*m_lambda_a; // Fa
 }
 
 void IMU_EKF::computeG(const Eigen::Matrix<double,3,3> &R_body_to_nav_next, 
@@ -145,9 +143,10 @@ void IMU_EKF::EKF(const Eigen::MatrixXd & H, const Eigen::MatrixXd & R, const Ei
 	// compute state correction
 	Eigen::Matrix<double,9,1> dx = K*z;
 
-	// 	rotation update 
+	// rotation update 
 	Eigen::Matrix<double,3,1> ro = dx(Eigen::seq(0,2));
 	static Eigen::Matrix<double,3,3> P(3,3);
+
 	// only correct the z-axis (yaw)
 	if (sensor_type == SUN_SENSOR)
 	{
@@ -228,11 +227,8 @@ void IMU_EKF::imu_callback(const sensor_msgs::Imu::ConstPtr& msg)
 	// rotate specific force into inertial frame
 	Eigen::Matrix<double,3,1> f_i = b_body_to_nav_avg._transformVector(f_b);
 
-	// gravity vector
-	Eigen::Matrix<double,3,1> g_vec(0,0,m_filter.g);
-
 	// get acceleration in inertial frame. (acceleration of body wrt inertial frame in inertial frame)
-	Eigen::Matrix<double,3,1> a_i = f_i - g_vec;
+	Eigen::Matrix<double,3,1> a_i = f_i - m_g_true;
 
 	// store in state -> this is time propagation step. 
 	m_state << b_next.w(),b_next.x(),b_next.y(),b_next.z(), x_g(0),x_g(1),x_g(2), x_a(0),x_a(1),x_a(2);
@@ -272,23 +268,20 @@ void IMU_EKF::imu_callback(const sensor_msgs::Imu::ConstPtr& msg)
 		stationaryMeasurementUpdate(R_body_to_nav_next);
 	}
 
-	if (true)
-	{
-		Eigen::Quaternion<double> b_next_body_to_nav = b_next.inverse();
-		static tf::TransformBroadcaster br;
-		tf::Transform transform;
-		transform.setOrigin( tf::Vector3(0, 0, 0));
-		tf::Quaternion q(b_next_body_to_nav.x(),b_next_body_to_nav.y(),b_next_body_to_nav.z(),b_next_body_to_nav.w());
-		transform.setRotation(q);
-		br.sendTransform(tf::StampedTransform(transform, ros::Time::now(), "map", "IMU"));
-		geometry_msgs::Quaternion msg;
-		msg.x = b_next_body_to_nav.x();
-		msg.y = b_next_body_to_nav.y();
-		msg.z = b_next_body_to_nav.z();
-		msg.w = b_next_body_to_nav.w();
-		m_orientation_pub.publish(msg);
-	}
-
+	// Publish TF and orientation
+	Eigen::Quaternion<double> b_next_body_to_nav = b_next.inverse();
+	static tf::TransformBroadcaster br;
+	tf::Transform transform;
+	transform.setOrigin( tf::Vector3(0, 0, 0));
+	tf::Quaternion q(b_next_body_to_nav.x(),b_next_body_to_nav.y(),b_next_body_to_nav.z(),b_next_body_to_nav.w());
+	transform.setRotation(q);
+	br.sendTransform(tf::StampedTransform(transform, ros::Time::now(), "map", "IMU"));
+	geometry_msgs::Quaternion quat_msg;
+	quat_msg.x = b_next_body_to_nav.x();
+	quat_msg.y = b_next_body_to_nav.y();
+	quat_msg.z = b_next_body_to_nav.z();
+	quat_msg.w = b_next_body_to_nav.w();
+	m_orientation_pub.publish(quat_msg);
 }
 
 void IMU_EKF::initialize_ekf(ros::NodeHandle &n)
@@ -312,9 +305,14 @@ void IMU_EKF::initialize_ekf(ros::NodeHandle &n)
 	if (client.call(srv))
 	{
 		ROS_INFO("ekf: initialize_ekf responded with data.");
-		// store received data
+
+		// initial orientation
 		geometry_msgs::Quaternion b = srv.response.init_orientation;
-		Eigen::Vector3d x_g = {srv.response.gyro_bias[0].data, srv.response.gyro_bias[1].data, srv.response.gyro_bias[2].data};
+
+		// initial gyro biases
+		Eigen::Vector3d x_g = {srv.response.gyro_bias[0].data, 
+			srv.response.gyro_bias[1].data, 
+			srv.response.gyro_bias[2].data};
 
 		// filter rate parameters
 		int num_data = 0; // number of data points used to initialize orientation
@@ -346,6 +344,9 @@ void IMU_EKF::initialize_ekf(ros::NodeHandle &n)
 
 		// gravity vector
 		n.param<double>("g",m_filter.g,9.80665);
+
+		// initialize gravity vector
+		m_g_true << 0, 0, m_filter.g;
 
 		// initialize state: [b, x_a, x_g] = [quaternion, gyro bias, accel bias],  size 10
 		m_state << b.w,b.x,b.y,b.z,x_g[0],x_g[1],x_g[2], 0,0,0;
