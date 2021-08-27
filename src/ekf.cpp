@@ -2,32 +2,10 @@
 // EKF adopted from earlier python code, fuses IMU and encoder data 
 // ***I didn't use typedefs for clarity for readers
 #include "ekf.h"
-#include "imu_ekf_ros/initRequest.h"
-#include "ros/ros.h"
-#include "sensor_msgs/Imu.h"
-#include "std_msgs/Int32MultiArray.h"
-#include "geometry_msgs/Vector3.h"
-#include "geometry_msgs/Quaternion.h"
-#include <tf/transform_broadcaster.h>
-#include <cstdlib>
 
-ros::Publisher quat_pub;
-static int counter = 0;
-
-void debug(auto str)
-{
-	std::cout << str << std::endl;
-}
-
-// convert vector to 3x3 skew symmetric matrix
-void to_skew(const Eigen::Matrix<double,3,1> &v, Eigen::Matrix<double,3,3> &m)
-{
-	m << 0, -v(2), v(1),
-	v(2), 0, -v(0),
-	-v(1), v(0), 0;
-}
-
-void computeF(const Eigen::Matrix<double,3,1> &f_i, const Eigen::Matrix<double,3,3> &R_body_to_nav_next, Eigen::Matrix<double,9,9> &F)
+void IMU_EKF::computeF(const Eigen::Matrix<double,3,1> &f_i, 
+	const Eigen::Matrix<double,3,3> &R_body_to_nav_next, 
+	Eigen::Matrix<double,9,9> &F) const
 {
 	// store relevant values in F
 	static Eigen::Matrix<double,3,3> f_i_skew(3,3);
@@ -39,7 +17,8 @@ void computeF(const Eigen::Matrix<double,3,1> &f_i, const Eigen::Matrix<double,3
 	F.block<3,3>(6,6) = Eigen::Matrix<double,3,3>::Identity()*lambda_a; // Fa
 }
 
-void computeG(const Eigen::Matrix<double,3,3> &R_body_to_nav_next, Eigen::Matrix<double,9,12> &G)
+void IMU_EKF::computeG(const Eigen::Matrix<double,3,3> &R_body_to_nav_next, 
+	Eigen::Matrix<double,9,12> &G) const
 {
 	G.block<3,3>(0,0) = -1*R_body_to_nav_next;
 	G.block<3,3>(0,6) = -1*R_body_to_nav_next;
@@ -47,7 +26,10 @@ void computeG(const Eigen::Matrix<double,3,3> &R_body_to_nav_next, Eigen::Matrix
 	G.block<3,3>(6,9) = Eigen::Matrix<double,3,3>::Identity();
 }
 
-void computePhiAndQdk(const Eigen::Matrix<double,3,1> &f_i, const Eigen::Matrix<double,3,3> &R_body_to_nav_next, Eigen::Matrix<double,9,9> &Phi, Eigen::Matrix<double,9,9> &Qdk)
+void IMU_EKF::computePhiAndQdk(const Eigen::Matrix<double,3,1> &f_i, 
+	const Eigen::Matrix<double,3,3> &R_body_to_nav_next, 
+	Eigen::Matrix<double,9,9> &Phi, 
+	Eigen::Matrix<double,9,9> &Qdk) const
 {
 	// van loan algorithm: https://www.cs.cornell.edu/cv/ResearchPDF/computing.integrals.involving.Matrix.Exp.pdf
 	// formulate larger matrix
@@ -65,8 +47,8 @@ void computePhiAndQdk(const Eigen::Matrix<double,3,1> &f_i, const Eigen::Matrix<
 	// fill in A matrix according to algorithm
 	A.block<9,9>(0,0) = -F;
 	A.block<9,9>(9,9) = F.transpose();
-	A.block<9,9>(0,9) = G*(filter.Q)*G.transpose();
-	A = A*filter.dt;
+	A.block<9,9>(0,9) = G*(m_filter.Q)*G.transpose();
+	A = A*m_filter.dt;
 
 	// matrix exponential
 	Eigen::Matrix<double,18,18> B = A.exp();
@@ -74,16 +56,16 @@ void computePhiAndQdk(const Eigen::Matrix<double,3,1> &f_i, const Eigen::Matrix<
 	Qdk = Phi*B.block<9,9>(0,9);
 }
 
-void stationaryMeasurementUpdate(const Eigen::Matrix<double,3,3> & R_body_to_nav)
+void IMU_EKF::stationaryMeasurementUpdate(const Eigen::Matrix<double,3,3> & R_body_to_nav)
 {
-	//debug("stationary update!");
-	rover_stationary = false;
+	//EKF::debug("stationary update!");
+	m_rover_stationary = false;
 
 	// stationary update matrix: Ha is 3 x 9
 	static Eigen::Matrix<double,3,9> Ha = Eigen::Matrix<double,3,9>::Zero();
 
 	// known gravity
-	Eigen::Matrix<double,3,1> g_meas(0,0,filter.g);
+	Eigen::Matrix<double,3,1> g_meas(0,0,m_filter.g);
 	static Eigen::Matrix<double,3,3> g_skew(3,3);
 	to_skew(g_meas, g_skew);
 	Ha.block<3,3>(0,0) = -1*g_skew;
@@ -94,26 +76,26 @@ void stationaryMeasurementUpdate(const Eigen::Matrix<double,3,3> & R_body_to_nav
 	static Eigen::MatrixXd y_meas = Eigen::Matrix<double,3,1>::Zero(); // actual measurement 
 
 	// predicted measurement is gravity 
-	y_pred << g_pred(0), g_pred(1), g_pred(2);
+	y_pred << m_g_pred(0), m_g_pred(1), m_g_pred(2);
 
 	// actual measurement is actual gravity
 	y_meas << g_meas(0), g_meas(1), g_meas(2);
 
-	// predicted gravity: g_pred
+	// predicted gravity: m_g_pred
 	Eigen::Matrix<double,3,1> z = y_meas - y_pred;
 
 	// call filter... TO DO. 3 or 2???
-	EKF(Ha.block<2,9>(0,0),filter.Ra.block<2,2>(0,0),z(Eigen::seq(0,1)), ACCELEROMETER);
+	EKF(Ha.block<2,9>(0,0),m_filter.Ra.block<2,2>(0,0),z(Eigen::seq(0,1)), ACCELEROMETER);
 }
 
 // input: a 3D vector in the inertial frame of the rover
 // for testing, using the surveyed x-axis of the robot
 // in reality, the measured sun ray
-void sun_sensor_callback(const geometry_msgs::Vector3::ConstPtr& msg)
+void IMU_EKF::sun_sensor_callback(const geometry_msgs::Vector3::ConstPtr& msg)
 {
 	std::cout << "Sun sensor update" << std::endl;
 	// input is a 3D sun ray in the inertial frame
-	Eigen::Quaternion<double> b = Eigen::Quaternion<double>(state(0),state(1),state(2),state(3));
+	Eigen::Quaternion<double> b = Eigen::Quaternion<double>(m_state(0),m_state(1),m_state(2),m_state(3));
 	Eigen::Quaternion<double> b_body_to_nav = b.inverse();
 
 	// stationary update matrix: Hs is 3 x 9
@@ -146,7 +128,7 @@ void sun_sensor_callback(const geometry_msgs::Vector3::ConstPtr& msg)
 	// measurement (from ephemeris)
 	y_meas << s_meas(0), s_meas(1), s_meas(2);
 
-	// predicted gravity: g_pred
+	// predicted gravity: m_g_pred
 	Eigen::Matrix<double,3,1> z = y_meas - y_pred;
 
 	// only correct heading error
@@ -154,11 +136,11 @@ void sun_sensor_callback(const geometry_msgs::Vector3::ConstPtr& msg)
 }
 
 // updates state. general to measurements given appropriately sized 
-void EKF(const Eigen::MatrixXd & H, const Eigen::MatrixXd & R, const Eigen::MatrixXd & z, const SENSOR_TYPE sensor_type)
+void IMU_EKF::EKF(const Eigen::MatrixXd & H, const Eigen::MatrixXd & R, const Eigen::MatrixXd & z, const SENSOR_TYPE sensor_type)
 {
 
 	// compute Kalman gain
-	Eigen::MatrixXd K = cov*H.transpose()*((R+H*cov*H.transpose()).inverse()); // fix auto later
+	Eigen::MatrixXd K = m_cov*H.transpose()*((R+H*m_cov*H.transpose()).inverse()); // fix auto later
 
 	// compute state correction
 	Eigen::Matrix<double,9,1> dx = K*z;
@@ -175,7 +157,7 @@ void EKF(const Eigen::MatrixXd & H, const Eigen::MatrixXd & R, const Eigen::Matr
 	to_skew(ro,P);
 
 	// predicted orientation
-	Eigen::Quaternion<double> b_q = Eigen::Quaternion<double>(state[0],state[1],state[2],state[3]);
+	Eigen::Quaternion<double> b_q = Eigen::Quaternion<double>(m_state[0],m_state[1],m_state[2],m_state[3]);
 	Eigen::Matrix<double,3,3> R_nav_to_body = b_q.toRotationMatrix();
 	Eigen::Matrix<double,3,3> R_nav_to_body_next = R_nav_to_body*(Eigen::Matrix<double,3,3>::Identity() - P); // (10.67)
 
@@ -185,40 +167,25 @@ void EKF(const Eigen::MatrixXd & H, const Eigen::MatrixXd & R, const Eigen::Matr
 
 	// 	compute next quaternion
 	Eigen::Quaternion<double> b_next(R_nav_to_body_next);
-	if (abs(ro[0]) > 0.1 || abs(ro[1]) > 0.1 || abs(ro[2]) > 0.1)
-	{
-		//debug("angle update high");
-	}
 
 	// update state
-	state.block<4,1>(0,0) << b_next.w(), b_next.x(), b_next.y(), b_next.z(); // update quaternion: [w, x, y, z]
-	state.block<3,1>(4,0) += dx(Eigen::seq(3,5)); // update accel bias
-	state.block<3,1>(7,0) += dx(Eigen::seq(6,8)); // update gyro bias
+	m_state.block<4,1>(0,0) << b_next.w(), b_next.x(), b_next.y(), b_next.z(); // update quaternion: [w, x, y, z]
+	m_state.block<3,1>(4,0) += dx(Eigen::seq(3,5)); // update accel bias
+	m_state.block<3,1>(7,0) += dx(Eigen::seq(6,8)); // update gyro bias
 
 	// update covariance
-	cov = (Eigen::Matrix<double,9,9>::Identity()-K*H)*(cov);
+	m_cov = (Eigen::Matrix<double,9,9>::Identity()-K*H)*(m_cov);
 
 	// symmetrify 
-	cov = (cov + cov.transpose())/2.0;
-
-	if (false)
-	{
-		Eigen::Quaternion<double> b_next_body_to_nav = b_next.inverse();
-		static tf::TransformBroadcaster br;
-		tf::Transform transform;
-		transform.setOrigin( tf::Vector3(0, 0, 0));
-		tf::Quaternion q(b_next_body_to_nav.x(),b_next_body_to_nav.y(),b_next_body_to_nav.z(),b_next_body_to_nav.w());
-		transform.setRotation(q);
-		br.sendTransform(tf::StampedTransform(transform, ros::Time::now(), "map", "IMU"));
-	}
+	m_cov = (m_cov + m_cov.transpose())/2.0;
 }
 
 // imu callback
-void imu_callback(const sensor_msgs::Imu::ConstPtr& msg)
+void IMU_EKF::imu_callback(const sensor_msgs::Imu::ConstPtr& msg)
 {
 	// Uncomment to time things
-	//filter.timer.PrintDt("Ignore"); 
-	//filter.timer.PrintDt("IMU"); 
+	//m_filter.timer.PrintDt("Ignore"); 
+	//m_filter.timer.PrintDt("IMU"); 
 
 	// IMU data
 	geometry_msgs::Vector3 w = msg->angular_velocity;
@@ -229,14 +196,14 @@ void imu_callback(const sensor_msgs::Imu::ConstPtr& msg)
 	/* Update State */
 
 	// current orientation
-	Eigen::Matrix<double,4,1> b = state(Eigen::seq(0,3));
+	Eigen::Matrix<double,4,1> b = m_state(Eigen::seq(0,3));
 	Eigen::Quaternion<double> b_prev = Eigen::Quaternion<double>(b(0),b(1),b(2),b(3)); // w, x, y, z
 
 	// current accel bias
-	Eigen::Matrix<double,3,1> x_g = state(Eigen::seq(4,6));
+	Eigen::Matrix<double,3,1> x_g = m_state(Eigen::seq(4,6));
 
 	// current gyro bias
-	Eigen::Matrix<double,3,1> x_a = state(Eigen::seq(6,8));
+	Eigen::Matrix<double,3,1> x_a = m_state(Eigen::seq(6,8));
 
 	// subtract out gyroscope bias. also w_bn = (-w_nb)
 	Eigen::Matrix<double,3,1> w_bn = -1*(w_nb-x_g);
@@ -246,8 +213,8 @@ void imu_callback(const sensor_msgs::Imu::ConstPtr& msg)
 	f_b = f_b - x_a;
 
 	// differential rotation: [w, x, y, z]
-	Eigen::Matrix<double,3,1> xyz = sin(w_norm*filter.dt/2.0)*w_bn/w_norm;
-	Eigen::Quaternion<double> db = Eigen::Quaternion<double>(cos(w_norm*filter.dt/2.0), xyz[0], xyz[1], xyz[2]);
+	Eigen::Matrix<double,3,1> xyz = sin(w_norm*m_filter.dt/2.0)*w_bn/w_norm;
+	Eigen::Quaternion<double> db = Eigen::Quaternion<double>(cos(w_norm*m_filter.dt/2.0), xyz[0], xyz[1], xyz[2]);
 
 	// update orientation
 	Eigen::Quaternion<double> b_next = db*b_prev;
@@ -262,13 +229,13 @@ void imu_callback(const sensor_msgs::Imu::ConstPtr& msg)
 	Eigen::Matrix<double,3,1> f_i = b_body_to_nav_avg._transformVector(f_b);
 
 	// gravity vector
-	Eigen::Matrix<double,3,1> g_vec(0,0,filter.g);
+	Eigen::Matrix<double,3,1> g_vec(0,0,m_filter.g);
 
 	// get acceleration in inertial frame. (acceleration of body wrt inertial frame in inertial frame)
 	Eigen::Matrix<double,3,1> a_i = f_i - g_vec;
 
 	// store in state -> this is time propagation step. 
-	state << b_next.w(),b_next.x(),b_next.y(),b_next.z(), x_g(0),x_g(1),x_g(2), x_a(0),x_a(1),x_a(2);
+	m_state << b_next.w(),b_next.x(),b_next.y(),b_next.z(), x_g(0),x_g(1),x_g(2), x_a(0),x_a(1),x_a(2);
 
 	/* Update covariance */
 	Eigen::Matrix<double,3,3> R_body_to_nav_next = b_next.inverse().toRotationMatrix();
@@ -280,31 +247,28 @@ void imu_callback(const sensor_msgs::Imu::ConstPtr& msg)
 	computePhiAndQdk(f_i, R_body_to_nav_next, Phi, Qdk);
 
 	// update covariance (15x15)
-	cov = Phi*cov*Phi.transpose()+Qdk;
+	m_cov = Phi*m_cov*Phi.transpose()+Qdk;
 
 	/* Measurement update using accelerometer to correct roll and pitch */
 	// if 50 accelerometer readings were close enough to the gravity vector, robot is stationary
 	//  check if current measurement is stationary
-	if (abs(f_b.norm() - filter.g) < stat_acces_thresh) // tuned. test: you should never be able to hold the imu in your hand and have an update.
+	if (abs(f_b.norm() - m_filter.g) < ACCEL_THRESH) // tuned. test: you should never be able to hold the imu in your hand and have an update.
 	{
-		accel_counter++;
-		g_pred_sum += R_body_to_nav_next*(f_b); // R*(x_a-y_a) TODO: CHECK THIS
+		m_accel_counter++;
+		m_g_pred_sum += R_body_to_nav_next*(f_b); // R*(x_a-y_a) TODO: CHECK THIS
 
 	} else {
-		accel_counter = 0;
-		g_pred_sum = Eigen::Matrix<double,3,1>::Zero();
-		rover_stationary = false;
+		m_accel_counter = 0;
+		m_g_pred_sum = Eigen::Matrix<double,3,1>::Zero();
+		m_rover_stationary = false;
 	}
 	// if n consecutive stationary, use accel_data
-	if (accel_counter == num_stat_measurements)
+	if (m_accel_counter == NUM_STATIONARY)
 	{
 		// predict gravity in navigation frame and store prediction in global variable.
-		g_pred = g_pred_sum/num_stat_measurements; // averaging
-		accel_counter = 0;
-		g_pred_sum << 0,0,0;
-		static int stat_ctr = 0;
-		std::cout << "stationary update: " << stat_ctr << std::endl;
-		stat_ctr++;
+		m_g_pred = m_g_pred_sum/NUM_STATIONARY; // averaging
+		m_accel_counter = 0;
+		m_g_pred_sum << 0,0,0;
 		stationaryMeasurementUpdate(R_body_to_nav_next);
 	}
 
@@ -322,13 +286,12 @@ void imu_callback(const sensor_msgs::Imu::ConstPtr& msg)
 		msg.y = b_next_body_to_nav.y();
 		msg.z = b_next_body_to_nav.z();
 		msg.w = b_next_body_to_nav.w();
-		quat_pub.publish(msg);
+		m_orientation_pub.publish(msg);
 	}
 
-	counter++;
 }
 
-void initialize_ekf(ros::NodeHandle &n)
+void IMU_EKF::initialize_ekf(ros::NodeHandle &n)
 {
 	ROS_INFO("ekf: waiting for initialization service");
 
@@ -337,9 +300,6 @@ void initialize_ekf(ros::NodeHandle &n)
 
 	// instantiate service class
 	imu_ekf_ros::initRequest srv;
-
-	// publish angles
-	quat_pub = n.advertise<geometry_msgs::Quaternion>("/quat", 0);
 
 	// call the service
 	if (!client.waitForExistence(ros::Duration(-1)))
@@ -357,11 +317,12 @@ void initialize_ekf(ros::NodeHandle &n)
 		Eigen::Vector3d x_g = {srv.response.gyro_bias[0].data, srv.response.gyro_bias[1].data, srv.response.gyro_bias[2].data};
 
 		// filter rate parameters
-		int num_data, hz; // number of data points used to initialize, imu hz
+		int num_data = 0; // number of data points used to initialize orientation
+		int hz = 0; // imu freqency
 		n.param("num_data",num_data,125);
 		n.param("imu_hz",hz,125);
-		filter.dt = 1.0/(double)hz;
-		filter.num_data = (double)num_data;
+		m_filter.dt = 1.0/(double)hz;
+		m_filter.num_data = (double)num_data;
 		double T = num_data/hz;  //number of measurements over rate of IMU
 
 		// initialize noise terms
@@ -374,31 +335,31 @@ void initialize_ekf(ros::NodeHandle &n)
 		// noise matrix for IMU (Q)
 		for (int i = 0; i < 3; i++)
 		{
-			filter.Q(i,i) = sigma_nua*sigma_nua;
-			filter.Q(3+i,3+i) = sigma_xg*sigma_xg;
-			filter.Q(6+i,6+i) = sigma_nug*sigma_nug;
-			filter.Q(9+i,9+i) = sigma_xa*sigma_xa;
+			m_filter.Q(i,i) = sigma_nua*sigma_nua;
+			m_filter.Q(3+i,3+i) = sigma_xg*sigma_xg;
+			m_filter.Q(6+i,6+i) = sigma_nug*sigma_nug;
+			m_filter.Q(9+i,9+i) = sigma_xa*sigma_xa;
 		}
 
 		// noise matrix for accelerometer (Ra)
-		filter.Ra = Eigen::Matrix<double,3,3>::Identity(3,3)*(sigma_nua*sigma_nua);
+		m_filter.Ra = Eigen::Matrix<double,3,3>::Identity(3,3)*(sigma_nua*sigma_nua);
 
 		// gravity vector
-		n.param<double>("g",filter.g,9.80665);
+		n.param<double>("g",m_filter.g,9.80665);
 
 		// initialize state: [b, x_a, x_g] = [quaternion, gyro bias, accel bias],  size 10
-		state << b.w,b.x,b.y,b.z,x_g[0],x_g[1],x_g[2], 0,0,0;
+		m_state << b.w,b.x,b.y,b.z,x_g[0],x_g[1],x_g[2], 0,0,0;
 
 		// initialize covariance
-		cov.block<2,2>(0,0) = (sigma_nua/filter.g)*(sigma_nua/filter.g)/T*Eigen::Matrix<double,2,2>::Identity();
-		cov(2,2) = 1000*PI/180.0;
-		cov.block<3,3>(3,3) = (sigma_nug)*(sigma_nug)/T*Eigen::Matrix<double,3,3>::Identity();
+		m_cov.block<2,2>(0,0) = (sigma_nua/m_filter.g)*(sigma_nua/m_filter.g)/T*Eigen::Matrix<double,2,2>::Identity();
+		m_cov(2,2) = 1000*PI/180.0; // yaw has large uncertainty initially
+		m_cov.block<3,3>(3,3) = (sigma_nug)*(sigma_nug)/T*Eigen::Matrix<double,3,3>::Identity();
 
 		// TODO: finish this part
-		//cov(0,7) =  cov[0,0]*cov[7,7]
-		//cov.block
-		//cov[0:2,7:9] = np.diag([math.sqrt(cov[0,0]*cov[7,7]),math.sqrt(cov[1,1]*cov[8,8])]) # absolutely no idea
-		//cov[6:,0:3] = np.transpose(cov[0:3,6:])
+		//m_cov(0,7) =  m_cov[0,0]*m_cov[7,7]
+		//m_cov.block
+		//m_cov[0:2,7:9] = np.diag([math.sqrt(cov[0,0]*cov[7,7]),math.sqrt(cov[1,1]*cov[8,8])]) # absolutely no idea
+		//m_cov[6:,0:3] = np.transpose(cov[0:3,6:])
 	}
 	else
 	{
@@ -408,6 +369,21 @@ void initialize_ekf(ros::NodeHandle &n)
 }
 
 
+IMU_EKF::IMU_EKF(ros::NodeHandle & n)
+{
+	// imu callback
+	m_imu_subscriber =  n.subscribe("/imu/data", 1000, &IMU_EKF::imu_callback, this);
+
+	// sun sensor callback
+	m_sun_sensor_subscriber = n.subscribe("/sun_sensor", 1, &IMU_EKF::sun_sensor_callback, this);
+
+	// orientation publisher
+	m_orientation_pub = n.advertise<geometry_msgs::Quaternion>("/quat", 0, this);
+
+	// initialize ekf
+	initialize_ekf(n);
+}
+
 int main(int argc, char **argv)
 {
 	ROS_INFO("EKF node started.");
@@ -416,18 +392,9 @@ int main(int argc, char **argv)
 
 	ros::NodeHandle n;
 
-	// initialize ekf
-	initialize_ekf(n);
-
-	// imu callback
-	ros::Subscriber sub_imu = n.subscribe("/imu/data", 1000, imu_callback);
-
-	// sun sensor callback
-	ros::Subscriber sub_sunsensor = n.subscribe("/sun_sensor", 1, sun_sensor_callback);
+	IMU_EKF imu_ekf(n);
 
 	ros::spin();
-
-	std::cout << counter << std::endl;
 
 	return 0;
 }

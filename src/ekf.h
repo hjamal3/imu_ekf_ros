@@ -7,6 +7,24 @@
 #include <string.h>
 #include <iostream>
 
+#include "imu_ekf_ros/initRequest.h"
+#include "sensor_msgs/Imu.h"
+#include "std_msgs/Int32MultiArray.h"
+#include "geometry_msgs/Vector3.h"
+#include "geometry_msgs/Quaternion.h"
+#include <tf/transform_broadcaster.h>
+#include <cstdlib>
+
+#include "ros/ros.h"
+
+namespace EKF
+{
+	void debug(auto str)
+	{
+		std::cout << str << std::endl;
+	}
+}
+
 // timer class to time parts of
 class Timer 
 {
@@ -31,13 +49,7 @@ private:
 	}
 };
 
-enum SENSOR_TYPE
-{
-	SUN_SENSOR = 1,
-	ACCELEROMETER = 2
-};
-
- // struct which contains constant parameters used in algorithm
+// struct which contains constant parameters used in algorithm
 struct EKF_struct {
 		// global variables in filter
 		Eigen::Matrix<double,12,12> Q = Eigen::Matrix<double,12,12>::Zero(); // noise matrix for IMU
@@ -48,72 +60,88 @@ struct EKF_struct {
 		Timer timer;
 };
 
-
-// Constants
-const double PI = 2*acos(0.0);
-const int num_stat_measurements = 125;
-const double stat_acces_thresh = 0.1; // m/s^2
-
-// variables used throughout algorithm 
-Eigen::Matrix<double,10, 1> state(10,1); // state
-Eigen::Matrix<double, 9, 9> cov = Eigen::Matrix<double,9,9>::Zero(); // covariance
-EKF_struct filter; // filter object
-
-// variables used for measurement update if rover stationary
-bool rover_stationary = false; // affects the measurement update
-int accel_counter = 0;
-Eigen::Matrix<double,3,1> g_pred(3,1);
-Eigen::Matrix<double,3,1> g_pred_sum(3,1);
-
-// variables used for measurement update for encoders
-bool first_time_enc = true;
-int ticks_l_prev;
-int ticks_r_prev;
-Eigen::Matrix<double,3,3> Re = Eigen::Matrix<double,3,3>::Zero(); // measurement noise matrix
-
-// printing function
-void debug(const std::string & str);
-
-// convert vector to skew symmetric matrix
-void to_skew(const Eigen::Matrix<double,3,1>& v, Eigen::Matrix<double,3,3> &m);
-
-// F matrix. dx_dot = F*dx + G*w 
-void computeF(const Eigen::Matrix<double,3,1> &f_i, const Eigen::Matrix<double,3,3> &R_body_to_nav_next, Eigen::Matrix<double,9,9> &F);
-
-// G matrix. dx_dot = F*dx + G*w 
-void computeG(const Eigen::Matrix<double,3,3> &R_body_to_nav_next, Eigen::Matrix<double,9,12> &G);
-
-// state transition matrix
-void computePhi(const Eigen::Matrix<double,3,1> &f_i, const Eigen::Matrix<double,3,3> &R_body_to_nav_next, Eigen::Matrix<double,9,9> &Phi);
-
-// encoder model noise
-void computeQdk(const Eigen::Matrix<double,3,3> &R_body_to_nav_next, Eigen::Matrix<double,9,9> &Qdk);
-
-// old technique: compute state transition matrix
-void computePhi(const Eigen::Matrix<double,3,1> &f_i,const Eigen::Matrix<double,3,3> &R_body_to_nav_next, Eigen::Matrix<double,9,9> &Phi)
+class IMU_EKF
 {
-	// compute F matrix: F is 9 x 9
-	Eigen::Matrix<double,9,9> F;
+public:
 
-	computeF(f_i, R_body_to_nav_next, F);
+	IMU_EKF(ros::NodeHandle & n);
+	void initialize_ekf(ros::NodeHandle &n);
 
-	// compute system transition matrix Phi
-	Phi = (F*filter.dt).exp();
-}
+	Eigen::Matrix<double,10, 1> get_state() const
+	{
+		return m_state;
+	}
 
-// old technique: compute discrete-time process noise covariance matrix (first order approximation)
-void computeQdk(const Eigen::Matrix<double,3,3> &R_body_to_nav_next, Eigen::Matrix<double,9,9> &Qdk)
-{
-	// compute G. G is 9 x 12.
-	Eigen::Matrix<double,9,12> G;
-	computeG(R_body_to_nav_next,G);
+private:
 
-	Qdk = G*(filter.Q)*G.transpose()*filter.dt;
-}
+	// State vector [orientation, gyro bias, accel bias]
+	Eigen::Matrix<double,10, 1> m_state; // state
+	Eigen::Matrix<double, 9, 9> m_cov; // covariance
+	Eigen::Matrix<double,3,1> m_g_pred;
+	Eigen::Matrix<double,3,1> m_g_pred_sum;
+	Eigen::Matrix<double,3,3> Re; // measurement noise matrix
+	EKF_struct m_filter; // filter object
 
-// measurement update using gravity prediction
-void stationaryMeasurementUpdate(const Eigen::Matrix<double,3,3> & R_body_to_nav);
+	// ROS related subscribers
+	ros::Subscriber m_imu_subscriber;
+	ros::Subscriber m_sun_sensor_subscriber;
+	ros::Publisher m_orientation_pub;
 
-// general Kalman filter
-void EKF(const Eigen::MatrixXd & H, const Eigen::MatrixXd & R, const Eigen::MatrixXd & z, const SENSOR_TYPE sensor_type);
-//void EKF(const Eigen::MatrixXf & H, const Eigen::MatrixXf & R, const Eigen::MatrixXf & z, const bool update_bias, const bool update_pos, const bool update_orientation);
+	const double PI = 2*acos(0.0);
+
+	// variables used for measurement update if rover stationary
+
+	// number of consecutive accelerometer measurments to declare robot is stationary
+	const int NUM_STATIONARY = 125;
+
+	// acceleration threshold to detect if robot is stationary
+	const double ACCEL_THRESH = 0.1; // m/s^2
+
+	// is the rover stationary
+	bool m_rover_stationary = false; 
+
+	// stationary counts
+	int m_accel_counter = 0;
+
+	enum SENSOR_TYPE
+	{
+		SUN_SENSOR = 1,
+		ACCELEROMETER = 2
+	};
+
+	void sun_sensor_callback(const geometry_msgs::Vector3::ConstPtr& msg);
+
+	void imu_callback(const sensor_msgs::Imu::ConstPtr& msg);
+
+	// F matrix. dx_dot = F*dx + G*w 
+	void computeF(const Eigen::Matrix<double,3,1> &f_i, 
+		const Eigen::Matrix<double,3,3> &R_body_to_nav_next, 
+		Eigen::Matrix<double,9,9> &F) const;
+
+	// G matrix. dx_dot = F*dx + G*w 
+	void computeG(const Eigen::Matrix<double,3,3> &R_body_to_nav_next, 
+		Eigen::Matrix<double,9,12> &G) const;
+
+	// discrete state transition matrix and noise matrix
+	void computePhiAndQdk(const Eigen::Matrix<double,3,1> &f_i, 
+		const Eigen::Matrix<double,3,3> &R_body_to_nav_next, 
+		Eigen::Matrix<double,9,9> &Phi, 
+		Eigen::Matrix<double,9,9> &Qdk) const;
+
+	// measurement update using gravity prediction
+	void stationaryMeasurementUpdate(const Eigen::Matrix<double,3,3> & R_body_to_nav);
+
+	// general Kalman filter
+	void EKF(const Eigen::MatrixXd & H, 
+		const Eigen::MatrixXd & R, 
+		const Eigen::MatrixXd & z, 
+		const SENSOR_TYPE sensor_type);
+
+	// convert vector to 3x3 skew symmetric matrix
+	void to_skew(const Eigen::Matrix<double,3,1> &v, Eigen::Matrix<double,3,3> &m) const
+	{
+		m << 0, -v(2), v(1),
+		v(2), 0, -v(0),
+		-v(1), v(0), 0;
+	}
+};
