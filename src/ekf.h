@@ -92,7 +92,7 @@ private:
 	static constexpr double PI = 2*acos(0.0);
 
 	// number of consecutive accelerometer measurments to declare robot is stationary
-	static constexpr int NUM_STATIONARY = 125;
+	const int NUM_STATIONARY = 125;
 
 	// acceleration threshold to detect if robot is stationary
 	static constexpr double ACCEL_THRESH = 0.1; // m/s^2
@@ -104,8 +104,8 @@ private:
 	int m_accel_counter = 0;
 
 	// noise parameters for random walk
-	static constexpr double m_lambda_g = -1.0/100;
-	static constexpr double m_lambda_a = -1.0/100;
+	const double m_lambda_g = -1.0/100;
+	const double m_lambda_a = -1.0/100;
 
 	enum SENSOR_TYPE
 	{
